@@ -859,7 +859,7 @@ final class Three_Abar_WC_Product_Addons {
 			}
 		}).fail(function(){
 			alert(abarAddonsFront.i18n.error);
-			$btn.prop('disabled', false);
+			$btn.prop('disabled', false).text(abarAddonsFront.i18n.submitLabel);
 		});
 	});
 })(jQuery);
