@@ -106,14 +106,12 @@ final class ThreeAbar_WC_Product_Addons {
 		add_action( 'wp_ajax_3abar_add_to_cart', array( $this, 'ajax_add_to_cart' ) );
 		add_action( 'wp_ajax_nopriv_3abar_add_to_cart', array( $this, 'ajax_add_to_cart' ) );
 
-		// ---------- تعديل سعر المنتجات المرفقة في السلة ----------
-		add_filter( 'woocommerce_add_cart_item_data', array( $this, 'inject_cart_item_data' ), 10, 3 );
-		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_addon_price' ), 20, 1 );
-
-		// ---------- إظهار المنتج الإضافي كعنصر فرعي داخل السلة ----------
+		// ---------- الحزمة: المنتج الرئيسي + إضافاته في عنصر سلة واحد ----------
+		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_bundle_price' ), 20, 1 );
 		add_filter( 'woocommerce_cart_item_class', array( $this, 'cart_item_class' ), 10, 3 );
-		add_filter( 'woocommerce_get_item_data', array( $this, 'cart_item_data_display' ), 10, 2 );
-		add_filter( 'woocommerce_cart_item_name', array( $this, 'cart_item_name_prefix' ), 10, 3 );
+		add_filter( 'woocommerce_cart_item_name', array( $this, 'cart_item_name_bundle' ), 10, 3 );
+		add_filter( 'woocommerce_cart_item_quantity', array( $this, 'cart_item_quantity_note' ), 10, 3 );
+		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_line_item_meta' ), 10, 4 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'cart_assets' ) );
 	}
 
@@ -546,21 +544,20 @@ final class ThreeAbar_WC_Product_Addons {
 			$addons = array_slice( $addons, 0, $max_select );
 		}
 
-		// إضافة المنتج الأساسي.
-		$added_main = WC()->cart->add_to_cart( $product_id );
-		if ( ! $added_main ) {
-			wp_send_json_error( array( 'message' => __( 'تعذّرت إضافة المنتج الأساسي.', '3abar-wc-addons' ) ) );
+		// نُرتّب المعرّفات حتى تندمج الاختيارات المتطابقة (زيادة الكمية)
+		// بينما تبقى الاختيارات المختلفة في صفوف منفصلة داخل السلة.
+		$addons = array_values( array_unique( $addons ) );
+		sort( $addons );
+
+		$cart_item_data = array();
+		if ( ! empty( $addons ) ) {
+			$cart_item_data['3abar_addons'] = $addons;
 		}
 
-		// إضافة المنتجات المرفقة مع تمرير معرّف المنتج الأصل لتطبيق السعر.
-		foreach ( $addons as $addon_id ) {
-			WC()->cart->add_to_cart(
-				$addon_id,
-				1,
-				0,
-				array(),
-				array( '3abar_parent' => $product_id )
-			);
+		// إضافة المنتج الأساسي كحزمة واحدة تحمل إضافاته في بياناتها.
+		$added = WC()->cart->add_to_cart( $product_id, 1, 0, array(), $cart_item_data );
+		if ( ! $added ) {
+			wp_send_json_error( array( 'message' => __( 'تعذّرت إضافة المنتج إلى السلة.', '3abar-wc-addons' ) ) );
 		}
 
 		wp_send_json_success(
@@ -572,32 +569,19 @@ final class ThreeAbar_WC_Product_Addons {
 	}
 
 	/* =====================================================================
-	 *  القسم الرابع: تعديل أسعار المنتجات المرفقة داخل السلة
+	 *  القسم الرابع: الحزمة داخل السلة (منتج رئيسي + إضافاته في عنصر واحد)
 	 * ===================================================================== */
 
 	/**
-	 * حقن معرّف المنتج الأصل في بيانات عنصر السلة (لتطبيق السعر لاحقًا).
+	 * حساب سعر الحزمة = سعر المنتج الرئيسي + مجموع أسعار الإضافات (بعد تطبيق السياسة).
 	 *
-	 * @param array $cart_item_data بيانات عنصر السلة.
-	 * @param int   $product_id     معرّف المنتج المُضاف.
-	 * @param int   $variation_id   معرّف المتغيّر.
-	 * @return array
-	 */
-	public function inject_cart_item_data( $cart_item_data, $product_id, $variation_id ) {
-		if ( isset( $cart_item_data['3abar_parent'] ) ) {
-			// نضمن أن العنصر فريد حتى لا يندمج مع نفس المنتج المُضاف بشكل عادي.
-			$cart_item_data['3abar_unique'] = md5( microtime() . wp_rand() );
-		}
-		return $cart_item_data;
-	}
-
-	/**
-	 * تطبيق سياسة السعر على المنتجات المرفقة داخل السلة.
+	 * يُضبط هذا السعر على وحدة المنتج الرئيسي، فيظهر الإجمالي مجمّعًا في خانة واحدة،
+	 * ويُضرب تلقائيًا في الكمية من قِبل WooCommerce.
 	 *
 	 * @param WC_Cart $cart السلة.
 	 * @return void
 	 */
-	public function apply_addon_price( $cart ) {
+	public function apply_bundle_price( $cart ) {
 		if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
 			return;
 		}
@@ -606,18 +590,26 @@ final class ThreeAbar_WC_Product_Addons {
 		}
 
 		foreach ( $cart->get_cart() as $cart_item ) {
-			if ( empty( $cart_item['3abar_parent'] ) ) {
+			if ( empty( $cart_item['3abar_addons'] ) || ! is_array( $cart_item['3abar_addons'] ) ) {
 				continue;
 			}
-			$parent_id  = absint( $cart_item['3abar_parent'] );
-			$base_price = (float) $cart_item['data']->get_price( 'edit' );
-			$new_price  = $this->calculate_adjusted_price( $base_price, $parent_id );
-			$cart_item['data']->set_price( $new_price );
+			$parent_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
+			$total     = (float) $cart_item['data']->get_price( 'edit' );
+
+			foreach ( $cart_item['3abar_addons'] as $addon_id ) {
+				$addon = wc_get_product( absint( $addon_id ) );
+				if ( ! $addon ) {
+					continue;
+				}
+				$total += $this->calculate_adjusted_price( (float) $addon->get_price( 'edit' ), $parent_id );
+			}
+
+			$cart_item['data']->set_price( $total );
 		}
 	}
 
 	/**
-	 * إضافة كلاسات CSS لصفوف السلة لتمييز المنتج الأصل والمنتجات الفرعية.
+	 * إضافة كلاس CSS لصف الحزمة في السلة (لتنسيقه كمربع واحد).
 	 *
 	 * @param string $class         كلاسات الصف.
 	 * @param array  $cart_item     عنصر السلة.
@@ -625,74 +617,102 @@ final class ThreeAbar_WC_Product_Addons {
 	 * @return string
 	 */
 	public function cart_item_class( $class, $cart_item, $cart_item_key ) {
-		if ( ! empty( $cart_item['3abar_parent'] ) ) {
-			$class .= ' threeabar-addon-cart-item';
-		} elseif ( $this->item_has_addons_in_cart( $cart_item ) ) {
-			$class .= ' threeabar-parent-cart-item';
+		if ( ! empty( $cart_item['3abar_addons'] ) ) {
+			$class .= ' threeabar-bundle-row';
 		}
 		return $class;
 	}
 
 	/**
-	 * إضافة سطر يوضّح أن هذا العنصر إضافة تابعة لمنتج رئيسي.
-	 *
-	 * @param array $item_data بيانات العرض.
-	 * @param array $cart_item عنصر السلة.
-	 * @return array
-	 */
-	public function cart_item_data_display( $item_data, $cart_item ) {
-		if ( ! empty( $cart_item['3abar_parent'] ) ) {
-			$parent = wc_get_product( absint( $cart_item['3abar_parent'] ) );
-			if ( $parent ) {
-				$item_data[] = array(
-					'key'     => __( 'إضافة إلى', '3abar-wc-addons' ),
-					'value'   => $parent->get_name(),
-					'display' => '<span class="threeabar-addon-parent-tag">' . esc_html( $parent->get_name() ) . '</span>',
-				);
-			}
-		}
-		return $item_data;
-	}
-
-	/**
-	 * إضافة رمز التفرّع قبل اسم المنتج الإضافي داخل السلة.
+	 * عرض المنتج الرئيسي وإضافاته داخل خانة الاسم كحزمة واحدة، مع توضيح سعر كل عنصر.
 	 *
 	 * @param string $name          اسم المنتج (HTML).
 	 * @param array  $cart_item     عنصر السلة.
 	 * @param string $cart_item_key مفتاح العنصر.
 	 * @return string
 	 */
-	public function cart_item_name_prefix( $name, $cart_item, $cart_item_key ) {
-		if ( ! empty( $cart_item['3abar_parent'] ) && ! is_admin() ) {
-			$name = '<span class="threeabar-addon-branch" aria-hidden="true">↳</span> ' . $name;
+	public function cart_item_name_bundle( $name, $cart_item, $cart_item_key ) {
+		if ( empty( $cart_item['3abar_addons'] ) || ! is_array( $cart_item['3abar_addons'] ) || is_admin() ) {
+			return $name;
 		}
-		return $name;
-	}
 
-	/**
-	 * هل يملك عنصر السلة هذا منتجات إضافية مرتبطة به داخل السلة؟
-	 *
-	 * @param array $cart_item عنصر السلة (الأصل المحتمل).
-	 * @return bool
-	 */
-	private function item_has_addons_in_cart( $cart_item ) {
-		if ( ! WC()->cart ) {
-			return false;
-		}
-		$parent_product_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
-		if ( ! $parent_product_id ) {
-			return false;
-		}
-		foreach ( WC()->cart->get_cart() as $ci ) {
-			if ( ! empty( $ci['3abar_parent'] ) && absint( $ci['3abar_parent'] ) === $parent_product_id ) {
-				return true;
+		$parent_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
+		// نجلب نسخة جديدة من المنتج لأن سعر النسخة الموجودة في السلة تم تعديله
+		// إلى إجمالي الحزمة عبر apply_bundle_price.
+		$main_product = wc_get_product( $parent_id );
+		$main_price   = $main_product ? (float) wc_get_price_to_display( $main_product ) : 0;
+
+		$rows  = '';
+		$rows .= '<div class="threeabar-bundle">';
+		$rows .= '<div class="threeabar-bundle-line threeabar-bundle-head">';
+		$rows .= '<span class="threeabar-bundle-name">' . $name . '</span>';
+		$rows .= '<span class="threeabar-bundle-price">' . wc_price( $main_price ) . '</span>';
+		$rows .= '</div>';
+
+		$rows .= '<div class="threeabar-bundle-addons">';
+		foreach ( $cart_item['3abar_addons'] as $addon_id ) {
+			$addon = wc_get_product( absint( $addon_id ) );
+			if ( ! $addon ) {
+				continue;
 			}
+			$adj = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
+			$rows .= '<div class="threeabar-bundle-line threeabar-bundle-addon">';
+			$rows .= '<span class="threeabar-bundle-name"><span class="threeabar-bundle-plus">＋</span>' . esc_html( $addon->get_name() ) . '</span>';
+			$rows .= '<span class="threeabar-bundle-price">' . wc_price( $adj ) . '</span>';
+			$rows .= '</div>';
 		}
-		return false;
+		$rows .= '</div>';
+		$rows .= '<div class="threeabar-bundle-foot">' . esc_html__( 'إجمالي الحزمة محسوب في خانة السعر', '3abar-wc-addons' ) . '</div>';
+		$rows .= '</div>';
+
+		return $rows;
 	}
 
 	/**
-	 * تحميل أنماط صفحة السلة/الدفع لإظهار العناصر الفرعية بشكل متداخل.
+	 * إضافة تلميح بسيط بجوار خانة الكمية يوضّح أنها كمية للحزمة كاملة.
+	 *
+	 * @param string $html          HTML الخاص بالكمية.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @param array  $cart_item     عنصر السلة.
+	 * @return string
+	 */
+	public function cart_item_quantity_note( $html, $cart_item_key, $cart_item ) {
+		if ( ! empty( $cart_item['3abar_addons'] ) && ! is_admin() ) {
+			$html .= '<small class="threeabar-bundle-qty-note">' . esc_html__( 'لكل حزمة', '3abar-wc-addons' ) . '</small>';
+		}
+		return $html;
+	}
+
+	/**
+	 * حفظ تفاصيل الإضافات على سطر الطلب لتظهر في الطلب والفواتير والبريد.
+	 *
+	 * @param WC_Order_Item_Product $item          سطر الطلب.
+	 * @param string                $cart_item_key مفتاح عنصر السلة.
+	 * @param array                 $values        بيانات عنصر السلة.
+	 * @param WC_Order              $order         الطلب.
+	 * @return void
+	 */
+	public function add_order_line_item_meta( $item, $cart_item_key, $values, $order ) {
+		if ( empty( $values['3abar_addons'] ) || ! is_array( $values['3abar_addons'] ) ) {
+			return;
+		}
+		$parent_id = isset( $values['product_id'] ) ? absint( $values['product_id'] ) : 0;
+		$labels    = array();
+		foreach ( $values['3abar_addons'] as $addon_id ) {
+			$addon = wc_get_product( absint( $addon_id ) );
+			if ( ! $addon ) {
+				continue;
+			}
+			$adj      = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
+			$labels[] = $addon->get_name() . ' (' . wp_strip_all_tags( wc_price( $adj ) ) . ')';
+		}
+		if ( ! empty( $labels ) ) {
+			$item->add_meta_data( __( 'المنتجات الإضافية', '3abar-wc-addons' ), implode( ' + ', $labels ), true );
+		}
+	}
+
+	/**
+	 * تحميل أنماط صفحة السلة/الدفع لإظهار الحزمة كمربع واحد أنيق.
 	 *
 	 * @return void
 	 */
@@ -964,17 +984,24 @@ final class ThreeAbar_WC_Product_Addons {
 	 */
 	private function cart_css() {
 		return '
-		.threeabar-parent-cart-item td{border-bottom:none!important}
-		.threeabar-addon-cart-item{background:#fffaf0!important}
-		.threeabar-addon-cart-item > td.product-name,
-		.threeabar-addon-cart-item > td:nth-child(3){position:relative}
-		.threeabar-addon-cart-item td.product-name{padding-inline-start:42px!important}
-		.threeabar-addon-cart-item td.product-name:before{content:"";position:absolute;inset-inline-start:20px;top:0;bottom:0;width:3px;border-radius:3px;background:linear-gradient(180deg,#e0a73c,#b97e16)}
-		.threeabar-addon-branch{color:#b97e16;font-weight:800;margin-inline-end:4px}
-		.threeabar-addon-cart-item .product-name a{color:#5a4209!important;font-weight:600}
-		.threeabar-addon-parent-tag{display:inline-block;background:linear-gradient(120deg,#fff4dc,#fde9bf);color:#8a5a12;border:1px solid #f0d9a0;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}
-		/* عربة السلة المبنية على البلوكات (Block Cart) */
-		.wc-block-cart-items__row.threeabar-addon-cart-item{background:#fffaf0}
+		/* صف الحزمة يظهر كمربع واحد متكامل */
+		.threeabar-bundle-row td{background:linear-gradient(180deg,#fffdf8,#fff8ea)!important;border-top:2px solid #e8cf94!important;border-bottom:2px solid #e8cf94!important}
+		.threeabar-bundle-row td:first-child{border-inline-start:4px solid #e0a73c!important}
+		.threeabar-bundle-row td.product-name{padding-block:16px!important}
+		.threeabar-bundle{display:flex;flex-direction:column;gap:6px}
+		.threeabar-bundle-line{display:flex;align-items:center;justify-content:space-between;gap:12px}
+		.threeabar-bundle-head .threeabar-bundle-name{font-weight:800;color:#3a2a0c;font-size:15px}
+		.threeabar-bundle-head .threeabar-bundle-name a{color:#3a2a0c!important;text-decoration:none}
+		.threeabar-bundle-addons{display:flex;flex-direction:column;gap:5px;margin-top:4px;padding-top:8px;border-top:1px dashed #e8cf94}
+		.threeabar-bundle-addon{font-size:13px;color:#6b5414}
+		.threeabar-bundle-addon .threeabar-bundle-name{display:flex;align-items:center;gap:6px;font-weight:600}
+		.threeabar-bundle-plus{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;font-size:12px;font-weight:800;line-height:1}
+		.threeabar-bundle-price{font-weight:700;color:#b97e16;white-space:nowrap;font-size:13px}
+		.threeabar-bundle-head .threeabar-bundle-price{font-size:14px}
+		.threeabar-bundle-foot{margin-top:8px;font-size:11px;color:#a8986f;font-style:italic}
+		.threeabar-bundle-qty-note{display:block;margin-top:4px;font-size:11px;color:#a8986f}
+		/* دعم سلة البلوكات (Block Cart) */
+		.wc-block-cart-items__row.threeabar-bundle-row{background:linear-gradient(180deg,#fffdf8,#fff8ea)}
 		';
 	}
 
