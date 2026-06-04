@@ -109,6 +109,12 @@ final class ThreeAbar_WC_Product_Addons {
 		// ---------- تعديل سعر المنتجات المرفقة في السلة ----------
 		add_filter( 'woocommerce_add_cart_item_data', array( $this, 'inject_cart_item_data' ), 10, 3 );
 		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_addon_price' ), 20, 1 );
+
+		// ---------- إظهار المنتج الإضافي كعنصر فرعي داخل السلة ----------
+		add_filter( 'woocommerce_cart_item_class', array( $this, 'cart_item_class' ), 10, 3 );
+		add_filter( 'woocommerce_get_item_data', array( $this, 'cart_item_data_display' ), 10, 2 );
+		add_filter( 'woocommerce_cart_item_name', array( $this, 'cart_item_name_prefix' ), 10, 3 );
+		add_action( 'wp_enqueue_scripts', array( $this, 'cart_assets' ) );
 	}
 
 	/**
@@ -610,6 +616,95 @@ final class ThreeAbar_WC_Product_Addons {
 		}
 	}
 
+	/**
+	 * إضافة كلاسات CSS لصفوف السلة لتمييز المنتج الأصل والمنتجات الفرعية.
+	 *
+	 * @param string $class         كلاسات الصف.
+	 * @param array  $cart_item     عنصر السلة.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @return string
+	 */
+	public function cart_item_class( $class, $cart_item, $cart_item_key ) {
+		if ( ! empty( $cart_item['3abar_parent'] ) ) {
+			$class .= ' threeabar-addon-cart-item';
+		} elseif ( $this->item_has_addons_in_cart( $cart_item ) ) {
+			$class .= ' threeabar-parent-cart-item';
+		}
+		return $class;
+	}
+
+	/**
+	 * إضافة سطر يوضّح أن هذا العنصر إضافة تابعة لمنتج رئيسي.
+	 *
+	 * @param array $item_data بيانات العرض.
+	 * @param array $cart_item عنصر السلة.
+	 * @return array
+	 */
+	public function cart_item_data_display( $item_data, $cart_item ) {
+		if ( ! empty( $cart_item['3abar_parent'] ) ) {
+			$parent = wc_get_product( absint( $cart_item['3abar_parent'] ) );
+			if ( $parent ) {
+				$item_data[] = array(
+					'key'     => __( 'إضافة إلى', '3abar-wc-addons' ),
+					'value'   => $parent->get_name(),
+					'display' => '<span class="threeabar-addon-parent-tag">' . esc_html( $parent->get_name() ) . '</span>',
+				);
+			}
+		}
+		return $item_data;
+	}
+
+	/**
+	 * إضافة رمز التفرّع قبل اسم المنتج الإضافي داخل السلة.
+	 *
+	 * @param string $name          اسم المنتج (HTML).
+	 * @param array  $cart_item     عنصر السلة.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @return string
+	 */
+	public function cart_item_name_prefix( $name, $cart_item, $cart_item_key ) {
+		if ( ! empty( $cart_item['3abar_parent'] ) && ! is_admin() ) {
+			$name = '<span class="threeabar-addon-branch" aria-hidden="true">↳</span> ' . $name;
+		}
+		return $name;
+	}
+
+	/**
+	 * هل يملك عنصر السلة هذا منتجات إضافية مرتبطة به داخل السلة؟
+	 *
+	 * @param array $cart_item عنصر السلة (الأصل المحتمل).
+	 * @return bool
+	 */
+	private function item_has_addons_in_cart( $cart_item ) {
+		if ( ! WC()->cart ) {
+			return false;
+		}
+		$parent_product_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
+		if ( ! $parent_product_id ) {
+			return false;
+		}
+		foreach ( WC()->cart->get_cart() as $ci ) {
+			if ( ! empty( $ci['3abar_parent'] ) && absint( $ci['3abar_parent'] ) === $parent_product_id ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * تحميل أنماط صفحة السلة/الدفع لإظهار العناصر الفرعية بشكل متداخل.
+	 *
+	 * @return void
+	 */
+	public function cart_assets() {
+		if ( ! function_exists( 'is_cart' ) || ! ( is_cart() || is_checkout() ) ) {
+			return;
+		}
+		wp_register_style( '3abar-wc-addons-cart', false, array(), self::VERSION );
+		wp_enqueue_style( '3abar-wc-addons-cart' );
+		wp_add_inline_style( '3abar-wc-addons-cart', $this->cart_css() );
+	}
+
 	/* =====================================================================
 	 *  القسم الخامس: دوال مساعدة
 	 * ===================================================================== */
@@ -709,20 +804,20 @@ final class ThreeAbar_WC_Product_Addons {
 	private function admin_css() {
 		return '
 		.threeabar-metabox{padding:6px 2px;font-family:inherit}
-		.threeabar-mb-header{display:flex;align-items:center;gap:14px;padding:16px 18px;margin:-6px -2px 18px;border-radius:14px;background:linear-gradient(120deg,#6d28d9 0%,#9333ea 45%,#db2777 100%);color:#fff;box-shadow:0 10px 30px -12px rgba(147,51,234,.7)}
-		.threeabar-mb-badge{font-weight:800;letter-spacing:1px;background:rgba(255,255,255,.18);backdrop-filter:blur(6px);padding:8px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.25)}
-		.threeabar-mb-desc{margin:0;opacity:.95;font-size:13px;line-height:1.7}
+		.threeabar-mb-header{display:flex;align-items:center;gap:14px;padding:16px 18px;margin:-6px -2px 18px;border-radius:14px;background:linear-gradient(120deg,#1a1206 0%,#3a2a0c 55%,#5a4209 100%);color:#f4c453;box-shadow:0 10px 30px -12px rgba(74,52,9,.7);border:1px solid #e0a73c}
+		.threeabar-mb-badge{font-weight:800;letter-spacing:1px;background:linear-gradient(120deg,#b97e16,#f4c453);color:#1a1206;padding:8px 14px;border-radius:10px;border:1px solid rgba(244,196,83,.5)}
+		.threeabar-mb-desc{margin:0;opacity:.95;font-size:13px;line-height:1.7;color:#f3ead3}
 		.threeabar-mb-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
-		.threeabar-field{display:flex;flex-direction:column;gap:7px;background:#fff;border:1px solid #ece9f6;border-radius:12px;padding:14px 16px;transition:.25s box-shadow,.25s transform}
-		.threeabar-field:hover{box-shadow:0 8px 24px -14px rgba(109,40,217,.45);transform:translateY(-1px)}
-		.threeabar-field label{font-weight:700;color:#4c1d95;font-size:13px}
-		.threeabar-field small{color:#7c7791;font-size:11.5px;line-height:1.6}
-		.threeabar-field input[type=number]{border-radius:9px;border:1.5px solid #e6e1f5;padding:9px 11px;font-size:14px;outline:none;transition:.2s}
-		.threeabar-field input[type=number]:focus{border-color:#9333ea;box-shadow:0 0 0 3px rgba(147,51,234,.15)}
+		.threeabar-field{display:flex;flex-direction:column;gap:7px;background:#fff;border:1px solid #f0e6cf;border-radius:12px;padding:14px 16px;transition:.25s box-shadow,.25s transform}
+		.threeabar-field:hover{box-shadow:0 8px 24px -14px rgba(184,128,28,.45);transform:translateY(-1px)}
+		.threeabar-field label{font-weight:700;color:#5a4209;font-size:13px}
+		.threeabar-field small{color:#9c8f6e;font-size:11.5px;line-height:1.6}
+		.threeabar-field input[type=number]{border-radius:9px;border:1.5px solid #f0e6cf;padding:9px 11px;font-size:14px;outline:none;transition:.2s}
+		.threeabar-field input[type=number]:focus{border-color:#e0a73c;box-shadow:0 0 0 3px rgba(224,167,60,.18)}
 		.threeabar-metabox .select2-container--default .select2-selection--multiple,
-		.threeabar-metabox .select2-container--default .select2-selection--single{border-radius:9px!important;border:1.5px solid #e6e1f5!important;min-height:40px}
-		.threeabar-metabox .select2-container--default.select2-container--focus .select2-selection--multiple{border-color:#9333ea!important}
-		.threeabar-metabox .select2-container--default .select2-selection--multiple .select2-selection__choice{background:linear-gradient(120deg,#6d28d9,#db2777)!important;border:none!important;color:#fff!important;border-radius:7px!important;padding:3px 9px!important}
+		.threeabar-metabox .select2-container--default .select2-selection--single{border-radius:9px!important;border:1.5px solid #f0e6cf!important;min-height:40px}
+		.threeabar-metabox .select2-container--default.select2-container--focus .select2-selection--multiple{border-color:#e0a73c!important}
+		.threeabar-metabox .select2-container--default .select2-selection--multiple .select2-selection__choice{background:linear-gradient(120deg,#b97e16,#e0a73c)!important;border:none!important;color:#1a1206!important;font-weight:700;border-radius:7px!important;padding:3px 9px!important}
 		@media(max-width:782px){.threeabar-mb-grid{grid-template-columns:1fr}}
 		';
 	}
@@ -795,61 +890,61 @@ final class ThreeAbar_WC_Product_Addons {
 		return '
 		/* ====== الزر المخصص ====== */
 		.threeabar-cta-wrap{margin:18px 0}
-		.threeabar-open-modal{position:relative;display:inline-flex!important;align-items:center;gap:12px;border:none!important;cursor:pointer;color:#fff!important;font-weight:800!important;font-size:17px!important;padding:16px 34px!important;border-radius:16px!important;background:linear-gradient(120deg,#6d28d9 0%,#9333ea 45%,#db2777 100%)!important;box-shadow:0 16px 34px -14px rgba(147,51,234,.85);transition:transform .25s,box-shadow .25s;overflow:hidden}
-		.threeabar-open-modal:before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,.35),transparent);transform:translateX(-120%);transition:transform .7s}
-		.threeabar-open-modal:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 22px 44px -14px rgba(219,39,119,.9)}
+		.threeabar-open-modal{position:relative;display:inline-flex!important;align-items:center;gap:12px;border:none!important;cursor:pointer;color:#1a1206!important;font-weight:800!important;font-size:17px!important;padding:16px 34px!important;border-radius:16px!important;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%)!important;box-shadow:0 16px 34px -14px rgba(184,128,28,.85);transition:transform .25s,box-shadow .25s;overflow:hidden}
+		.threeabar-open-modal:before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,.45),transparent);transform:translateX(-120%);transition:transform .7s}
+		.threeabar-open-modal:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 22px 44px -14px rgba(224,167,60,.95)}
 		.threeabar-open-modal:hover:before{transform:translateX(120%)}
 		.threeabar-cta-icon{font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}
 
 		/* ====== الخلفية والنافذة ====== */
-		.threeabar-modal-overlay{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(17,12,34,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity .3s}
+		.threeabar-modal-overlay{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(20,15,6,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity .3s}
 		.threeabar-modal-overlay.is-open{display:flex;opacity:1}
-		.threeabar-modal{position:relative;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;background:linear-gradient(180deg,#ffffff 0%,#faf8ff 100%);border-radius:24px;box-shadow:0 40px 90px -30px rgba(76,29,149,.65);overflow:hidden;transform:translateY(28px) scale(.96);opacity:0;transition:transform .35s cubic-bezier(.2,.9,.3,1.2),opacity .35s;direction:rtl}
+		.threeabar-modal{position:relative;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;background:linear-gradient(180deg,#ffffff 0%,#fffaf0 100%);border-radius:24px;box-shadow:0 40px 90px -30px rgba(74,52,9,.65);overflow:hidden;transform:translateY(28px) scale(.96);opacity:0;transition:transform .35s cubic-bezier(.2,.9,.3,1.2),opacity .35s;direction:rtl}
 		.threeabar-modal-overlay.is-open .threeabar-modal{transform:translateY(0) scale(1);opacity:1}
-		.threeabar-modal-glow{position:absolute;top:-120px;inset-inline-end:-120px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(219,39,119,.45),transparent 65%);pointer-events:none;filter:blur(8px)}
+		.threeabar-modal-glow{position:absolute;top:-120px;inset-inline-end:-120px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(244,196,83,.5),transparent 65%);pointer-events:none;filter:blur(8px)}
 
 		/* ====== الهيدر ====== */
-		.threeabar-modal-head{position:relative;display:flex;align-items:center;justify-content:space-between;padding:22px 26px;background:linear-gradient(120deg,#6d28d9 0%,#9333ea 45%,#db2777 100%);color:#fff}
-		.threeabar-modal-head h3{margin:0;font-size:21px;font-weight:800;color:#fff}
-		.threeabar-modal-close{background:rgba(255,255,255,.18);border:none;color:#fff;width:38px;height:38px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer;transition:.2s}
-		.threeabar-modal-close:hover{background:rgba(255,255,255,.35);transform:rotate(90deg)}
+		.threeabar-modal-head{position:relative;display:flex;align-items:center;justify-content:space-between;padding:22px 26px;background:linear-gradient(120deg,#1a1206 0%,#3a2a0c 55%,#5a4209 100%);color:#f4c453;border-bottom:2px solid #e0a73c}
+		.threeabar-modal-head h3{margin:0;font-size:21px;font-weight:800;color:#f4c453;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+		.threeabar-modal-close{background:rgba(244,196,83,.18);border:1px solid rgba(244,196,83,.4);color:#f4c453;width:38px;height:38px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer;transition:.2s}
+		.threeabar-modal-close:hover{background:rgba(244,196,83,.35);transform:rotate(90deg)}
 
 		/* ====== البحث ====== */
 		.threeabar-search-bar{position:relative;padding:18px 26px 6px}
 		.threeabar-search-icon{position:absolute;inset-inline-start:40px;top:50%;transform:translateY(-30%);font-size:16px;opacity:.6}
-		.threeabar-search-input{width:100%;padding:14px 46px;border:2px solid #ece9f6;border-radius:14px;font-size:15px;outline:none;transition:.2s;background:#fff}
-		.threeabar-search-input:focus{border-color:#9333ea;box-shadow:0 0 0 4px rgba(147,51,234,.14)}
+		.threeabar-search-input{width:100%;padding:14px 46px;border:2px solid #f0e6cf;border-radius:14px;font-size:15px;outline:none;transition:.2s;background:#fff}
+		.threeabar-search-input:focus{border-color:#e0a73c;box-shadow:0 0 0 4px rgba(224,167,60,.18)}
 
 		/* ====== الجسم والنتائج ====== */
 		.threeabar-modal-body{flex:1;overflow-y:auto;padding:10px 26px 18px}
 		.threeabar-modal-body::-webkit-scrollbar{width:9px}
-		.threeabar-modal-body::-webkit-scrollbar-thumb{background:#d8cdf2;border-radius:8px}
+		.threeabar-modal-body::-webkit-scrollbar-thumb{background:#e8cf94;border-radius:8px}
 		.threeabar-results{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:8px}
-		.threeabar-card{position:relative;display:flex;gap:13px;align-items:center;padding:13px;border:2px solid #eee7fb;border-radius:16px;background:#fff;cursor:pointer;transition:transform .2s,border-color .2s,box-shadow .2s}
-		.threeabar-card:hover{transform:translateY(-2px);border-color:#c4b5fd;box-shadow:0 12px 26px -16px rgba(109,40,217,.6)}
-		.threeabar-card.is-selected{border-color:#9333ea;background:linear-gradient(180deg,#faf5ff,#fdf2f8);box-shadow:0 12px 30px -14px rgba(147,51,234,.6)}
-		.threeabar-card.is-selected:after{content:"\2713";position:absolute;top:9px;inset-inline-start:9px;width:24px;height:24px;border-radius:50%;background:linear-gradient(120deg,#9333ea,#db2777);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;box-shadow:0 4px 10px -3px rgba(147,51,234,.7)}
-		.threeabar-card img{width:64px;height:64px;object-fit:cover;border-radius:12px;flex:0 0 64px;background:#f4f1fb}
+		.threeabar-card{position:relative;display:flex;gap:13px;align-items:center;padding:13px;border:2px solid #f2e8d0;border-radius:16px;background:#fff;cursor:pointer;transition:transform .2s,border-color .2s,box-shadow .2s;outline:none}
+		.threeabar-card:hover,.threeabar-card:focus-visible{transform:translateY(-2px);border-color:#e8c878;box-shadow:0 12px 26px -16px rgba(184,128,28,.6)}
+		.threeabar-card.is-selected{border-color:#e0a73c;background:linear-gradient(180deg,#fffaf0,#fdf3da);box-shadow:0 12px 30px -14px rgba(224,167,60,.6)}
+		.threeabar-card.is-selected:after{content:"\2713";position:absolute;top:9px;inset-inline-start:9px;width:24px;height:24px;border-radius:50%;background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;box-shadow:0 4px 10px -3px rgba(184,128,28,.7)}
+		.threeabar-card img{width:64px;height:64px;object-fit:cover;border-radius:12px;flex:0 0 64px;background:#faf3e2}
 		.threeabar-card-info{flex:1;min-width:0}
-		.threeabar-card-name{margin:0 0 5px;font-size:14px;font-weight:700;color:#2e1065;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-		.threeabar-card-price{font-size:14px;font-weight:800;color:#db2777}
-		.threeabar-card-price del{color:#a99fc4;font-weight:500;font-size:12px;margin-inline-start:6px}
+		.threeabar-card-name{margin:0 0 5px;font-size:14px;font-weight:700;color:#3a2a0c;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+		.threeabar-card-price{font-size:14px;font-weight:800;color:#b97e16}
+		.threeabar-card-price del{color:#bcae8e;font-weight:500;font-size:12px;margin-inline-start:6px}
 		.threeabar-card input{position:absolute;opacity:0;pointer-events:none}
 
 		/* حالات فارغة/تحميل */
-		.threeabar-state{grid-column:1/-1;text-align:center;padding:40px 10px;color:#8a82a6;font-size:15px}
-		.threeabar-spinner{width:42px;height:42px;margin:0 auto 14px;border:4px solid #ece7f8;border-top-color:#9333ea;border-radius:50%;animation:threeabarSpin .8s linear infinite}
+		.threeabar-state{grid-column:1/-1;text-align:center;padding:40px 10px;color:#9c8f6e;font-size:15px}
+		.threeabar-spinner{width:42px;height:42px;margin:0 auto 14px;border:4px solid #f3ead3;border-top-color:#e0a73c;border-radius:50%;animation:threeabarSpin .8s linear infinite}
 		@keyframes threeabarSpin{to{transform:rotate(360deg)}}
 
 		/* ====== الفوتر ====== */
-		.threeabar-modal-foot{display:flex;align-items:center;gap:16px;padding:18px 26px;border-top:1px solid #efeaf9;background:#fff}
-		.threeabar-selection-info{font-weight:800;color:#6d28d9;font-size:16px;background:#f4eefe;padding:10px 16px;border-radius:12px;min-width:64px;text-align:center}
+		.threeabar-modal-foot{display:flex;align-items:center;gap:16px;padding:18px 26px;border-top:1px solid #f0e6cf;background:#fff}
+		.threeabar-selection-info{font-weight:800;color:#8a5a12;font-size:16px;background:#fdf3da;padding:10px 16px;border-radius:12px;min-width:64px;text-align:center}
 		.threeabar-selected-sep{opacity:.4;margin:0 2px}
-		.threeabar-confirm-btn{flex:1;position:relative;border:none;cursor:pointer;color:#fff;font-weight:800;font-size:17px;padding:16px;border-radius:14px;background:linear-gradient(120deg,#6d28d9 0%,#9333ea 45%,#db2777 100%);box-shadow:0 14px 30px -12px rgba(147,51,234,.8);transition:transform .2s,box-shadow .2s,opacity .2s;display:flex;align-items:center;justify-content:center;gap:10px}
-		.threeabar-confirm-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 20px 40px -12px rgba(219,39,119,.85)}
+		.threeabar-confirm-btn{flex:1;position:relative;border:none;cursor:pointer;color:#1a1206;font-weight:800;font-size:17px;padding:16px;border-radius:14px;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%);box-shadow:0 14px 30px -12px rgba(184,128,28,.8);transition:transform .2s,box-shadow .2s,opacity .2s;display:flex;align-items:center;justify-content:center;gap:10px}
+		.threeabar-confirm-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 20px 40px -12px rgba(224,167,60,.9)}
 		.threeabar-confirm-btn:disabled{opacity:.45;cursor:not-allowed}
 		.threeabar-confirm-btn.is-loading .threeabar-confirm-text{opacity:.5}
-		.threeabar-confirm-spinner{display:none;width:20px;height:20px;border:3px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:threeabarSpin .7s linear infinite}
+		.threeabar-confirm-spinner{display:none;width:20px;height:20px;border:3px solid rgba(26,18,6,.35);border-top-color:#1a1206;border-radius:50%;animation:threeabarSpin .7s linear infinite}
 		.threeabar-confirm-btn.is-loading .threeabar-confirm-spinner{display:inline-block}
 
 		/* ====== التجاوب ====== */
@@ -859,6 +954,27 @@ final class ThreeAbar_WC_Product_Addons {
 			.threeabar-modal-head h3{font-size:18px}
 			.threeabar-open-modal{width:100%;justify-content:center}
 		}
+		';
+	}
+
+	/**
+	 * أنماط صفحة السلة/الدفع: إظهار المنتجات الإضافية كعناصر فرعية متداخلة.
+	 *
+	 * @return string
+	 */
+	private function cart_css() {
+		return '
+		.threeabar-parent-cart-item td{border-bottom:none!important}
+		.threeabar-addon-cart-item{background:#fffaf0!important}
+		.threeabar-addon-cart-item > td.product-name,
+		.threeabar-addon-cart-item > td:nth-child(3){position:relative}
+		.threeabar-addon-cart-item td.product-name{padding-inline-start:42px!important}
+		.threeabar-addon-cart-item td.product-name:before{content:"";position:absolute;inset-inline-start:20px;top:0;bottom:0;width:3px;border-radius:3px;background:linear-gradient(180deg,#e0a73c,#b97e16)}
+		.threeabar-addon-branch{color:#b97e16;font-weight:800;margin-inline-end:4px}
+		.threeabar-addon-cart-item .product-name a{color:#5a4209!important;font-weight:600}
+		.threeabar-addon-parent-tag{display:inline-block;background:linear-gradient(120deg,#fff4dc,#fde9bf);color:#8a5a12;border:1px solid #f0d9a0;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:700}
+		/* عربة السلة المبنية على البلوكات (Block Cart) */
+		.wc-block-cart-items__row.threeabar-addon-cart-item{background:#fffaf0}
 		';
 	}
 
@@ -1028,8 +1144,8 @@ final class ThreeAbar_WC_Product_Addons {
 				if (!msg){ return; }
 				var $f = $('<div class="threeabar-flash"></div>').text(msg).css({
 					position:'fixed', bottom:'28px', insetInlineStart:'50%', transform:'translateX(-50%)',
-					background:'#db2777', color:'#fff', padding:'12px 22px', borderRadius:'12px',
-					zIndex:9999999, fontWeight:'700', boxShadow:'0 14px 30px -12px rgba(219,39,119,.8)'
+					background:'linear-gradient(120deg,#b97e16,#e0a73c)', color:'#1a1206', padding:'12px 22px', borderRadius:'12px',
+					zIndex:9999999, fontWeight:'700', boxShadow:'0 14px 30px -12px rgba(184,128,28,.8)'
 				});
 				$('body').append($f);
 				setTimeout(function(){ $f.fadeOut(300, function(){ $(this).remove(); }); }, 1800);
