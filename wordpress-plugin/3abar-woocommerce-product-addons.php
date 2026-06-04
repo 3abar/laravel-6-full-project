@@ -46,6 +46,7 @@ final class ThreeAbar_WC_Product_Addons {
 	const META_MAX_SELECT  = '_3abar_addon_max_select';
 	const META_PRICE_TYPE  = '_3abar_addon_price_type';
 	const META_PRICE_VALUE = '_3abar_addon_price_value';
+	const META_REQUIRED    = '_3abar_addon_required';
 
 	/**
 	 * اسم الـ action الخاص بالـ nonce.
@@ -99,6 +100,8 @@ final class ThreeAbar_WC_Product_Addons {
 		add_action( 'wp_enqueue_scripts', array( $this, 'frontend_assets' ) );
 		add_action( 'wp', array( $this, 'maybe_swap_add_to_cart' ) );
 		add_action( 'wp_footer', array( $this, 'render_modal_template' ) );
+		// استبدال زر الإضافة في قوائم المنتجات (Catalog/Shop/التصنيفات/المنتجات ذات الصلة).
+		add_filter( 'woocommerce_loop_add_to_cart_link', array( $this, 'loop_add_to_cart_link' ), 10, 3 );
 
 		// ---------- Ajax ----------
 		add_action( 'wp_ajax_3abar_search_addons', array( $this, 'ajax_search_addons' ) );
@@ -162,6 +165,8 @@ final class ThreeAbar_WC_Product_Addons {
 		$price_type          = get_post_meta( $post->ID, self::META_PRICE_TYPE, true );
 		$price_type          = $price_type ? $price_type : 'original';
 		$price_value         = get_post_meta( $post->ID, self::META_PRICE_VALUE, true );
+		$required            = get_post_meta( $post->ID, self::META_REQUIRED, true );
+		$required            = ( 'yes' === $required ) ? 'yes' : 'no';
 
 		$price_types = array(
 			'original'          => __( 'استخدم سعر المنتج الأصلي', '3abar-wc-addons' ),
@@ -229,6 +234,15 @@ final class ThreeAbar_WC_Product_Addons {
 				</div>
 
 				<div class="threeabar-field">
+					<label for="3abar_addon_required"><?php esc_html_e( 'سياسة الإضافة (إجبارية / اختيارية)', '3abar-wc-addons' ); ?></label>
+					<select id="3abar_addon_required" name="<?php echo esc_attr( self::META_REQUIRED ); ?>" style="width:100%;">
+						<option value="no" <?php selected( $required, 'no' ); ?>><?php esc_html_e( 'اختيارية — يمكن البيع بدون إضافات', '3abar-wc-addons' ); ?></option>
+						<option value="yes" <?php selected( $required, 'yes' ); ?>><?php esc_html_e( 'إجبارية — يجب اختيار إضافة واحدة على الأقل', '3abar-wc-addons' ); ?></option>
+					</select>
+					<small><?php esc_html_e( 'عند اختيار "اختيارية" يستطيع العميل إتمام الطلب بدون أي إضافات.', '3abar-wc-addons' ); ?></small>
+				</div>
+
+				<div class="threeabar-field">
 					<label for="3abar_addon_price_type"><?php esc_html_e( 'سياسة السعر (Price Adjustment)', '3abar-wc-addons' ); ?></label>
 					<select id="3abar_addon_price_type" name="<?php echo esc_attr( self::META_PRICE_TYPE ); ?>" class="threeabar-price-type" style="width:100%;">
 						<?php foreach ( $price_types as $key => $label ) : ?>
@@ -288,6 +302,10 @@ final class ThreeAbar_WC_Product_Addons {
 		// قيمة التعديل.
 		$price_value = isset( $_POST[ self::META_PRICE_VALUE ] ) ? wc_format_decimal( wp_unslash( $_POST[ self::META_PRICE_VALUE ] ) ) : 0;
 		update_post_meta( $post_id, self::META_PRICE_VALUE, $price_value );
+
+		// سياسة الإضافة (إجبارية / اختيارية).
+		$required = ( isset( $_POST[ self::META_REQUIRED ] ) && 'yes' === $_POST[ self::META_REQUIRED ] ) ? 'yes' : 'no';
+		update_post_meta( $post_id, self::META_REQUIRED, $required );
 	}
 
 	/**
@@ -320,12 +338,7 @@ final class ThreeAbar_WC_Product_Addons {
 	 * @return void
 	 */
 	public function frontend_assets() {
-		if ( ! is_product() ) {
-			return;
-		}
-
-		global $post;
-		if ( ! $post || ! $this->product_has_addons( $post->ID ) ) {
+		if ( ! $this->is_addons_context() ) {
 			return;
 		}
 
@@ -392,12 +405,14 @@ final class ThreeAbar_WC_Product_Addons {
 		$product_id = $product->get_id();
 		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
 		$max_select = $max_select > 0 ? $max_select : 1;
+		$required   = $this->is_addons_required( $product_id ) ? 1 : 0;
 		?>
 		<div class="threeabar-cta-wrap">
 			<button type="button"
 					class="threeabar-open-modal button alt"
 					data-product-id="<?php echo esc_attr( $product_id ); ?>"
-					data-max="<?php echo esc_attr( $max_select ); ?>">
+					data-max="<?php echo esc_attr( $max_select ); ?>"
+					data-required="<?php echo esc_attr( $required ); ?>">
 				<span class="threeabar-cta-icon" aria-hidden="true">🛍️</span>
 				<span class="threeabar-cta-text"><?php esc_html_e( 'اطلب الآن واختر إضافاتك', '3abar-wc-addons' ); ?></span>
 			</button>
@@ -406,16 +421,42 @@ final class ThreeAbar_WC_Product_Addons {
 	}
 
 	/**
+	 * استبدال زر "أضف إلى السلة" في قوائم المنتجات (Catalog) بزرّنا الذي يفتح النافذة.
+	 *
+	 * @param string     $html    HTML الخاص بالزر.
+	 * @param WC_Product $product المنتج.
+	 * @param array      $args    وسائط الزر.
+	 * @return string
+	 */
+	public function loop_add_to_cart_link( $html, $product, $args = array() ) {
+		if ( ! $product instanceof WC_Product ) {
+			return $html;
+		}
+		$product_id = $product->get_id();
+		if ( ! $this->product_has_addons( $product_id ) ) {
+			return $html;
+		}
+
+		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
+		$max_select = $max_select > 0 ? $max_select : 1;
+		$required   = $this->is_addons_required( $product_id ) ? 1 : 0;
+
+		return sprintf(
+			'<button type="button" class="threeabar-open-modal threeabar-loop-btn button" data-product-id="%1$d" data-max="%2$d" data-required="%3$d"><span class="threeabar-cta-icon" aria-hidden="true">🛍️</span><span class="threeabar-cta-text">%4$s</span></button>',
+			(int) $product_id,
+			(int) $max_select,
+			(int) $required,
+			esc_html__( 'اختر الإضافات', '3abar-wc-addons' )
+		);
+	}
+
+	/**
 	 * طباعة قالب النافذة المنبثقة في الفوتر (مرة واحدة لكل صفحة منتج بها إضافات).
 	 *
 	 * @return void
 	 */
 	public function render_modal_template() {
-		if ( ! function_exists( 'is_product' ) || ! is_product() ) {
-			return;
-		}
-		global $post;
-		if ( ! $post || ! $this->product_has_addons( $post->ID ) ) {
+		if ( ! $this->is_addons_context() ) {
 			return;
 		}
 		?>
@@ -548,6 +589,11 @@ final class ThreeAbar_WC_Product_Addons {
 		// بينما تبقى الاختيارات المختلفة في صفوف منفصلة داخل السلة.
 		$addons = array_values( array_unique( $addons ) );
 		sort( $addons );
+
+		// التحقق من سياسة الإضافة: إن كانت إجبارية يجب وجود إضافة واحدة على الأقل.
+		if ( $this->is_addons_required( $product_id ) && empty( $addons ) ) {
+			wp_send_json_error( array( 'message' => __( 'يجب اختيار إضافة واحدة على الأقل لهذا المنتج.', '3abar-wc-addons' ) ) );
+		}
 
 		$cart_item_data = array();
 		if ( ! empty( $addons ) ) {
@@ -740,6 +786,34 @@ final class ThreeAbar_WC_Product_Addons {
 	}
 
 	/**
+	 * هل الإضافات إجبارية لهذا المنتج؟
+	 *
+	 * @param int $product_id معرّف المنتج.
+	 * @return bool
+	 */
+	private function is_addons_required( $product_id ) {
+		return 'yes' === get_post_meta( $product_id, self::META_REQUIRED, true );
+	}
+
+	/**
+	 * هل نحن في سياق يستلزم تحميل أصول البلاجن والنافذة المنبثقة؟
+	 * (صفحة منتج به إضافات، أو صفحات القوائم: المتجر/التصنيفات/الوسوم).
+	 *
+	 * @return bool
+	 */
+	private function is_addons_context() {
+		if ( is_admin() || ! function_exists( 'is_woocommerce' ) ) {
+			return false;
+		}
+		if ( is_product() ) {
+			global $post;
+			return $post && $this->product_has_addons( $post->ID );
+		}
+		// صفحات القوائم قد تحتوي منتجات لها إضافات.
+		return is_shop() || is_product_taxonomy();
+	}
+
+	/**
 	 * الحصول على قائمة معرّفات المنتجات المرفقة (من المنتجات المحددة + التصنيفات).
 	 *
 	 * @param int $product_id معرّف المنتج الأصل.
@@ -915,6 +989,9 @@ final class ThreeAbar_WC_Product_Addons {
 		.threeabar-open-modal:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 22px 44px -14px rgba(224,167,60,.95)}
 		.threeabar-open-modal:hover:before{transform:translateX(120%)}
 		.threeabar-cta-icon{font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}
+		/* نسخة مصغّرة للزر داخل قوائم المنتجات (Catalog) */
+		.threeabar-loop-btn{display:inline-flex!important;align-items:center;gap:8px;padding:10px 18px!important;font-size:14px!important;border-radius:12px!important;box-shadow:0 10px 22px -12px rgba(184,128,28,.85)}
+		.threeabar-loop-btn .threeabar-cta-icon{font-size:16px}
 
 		/* ====== الخلفية والنافذة ====== */
 		.threeabar-modal-overlay{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(20,15,6,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity .3s}
@@ -1017,7 +1094,7 @@ final class ThreeAbar_WC_Product_Addons {
 			'use strict';
 			var cfg = window.ThreeAbarAddons || {};
 			var $overlay, $modal, $results, $search, $confirm, $count, $maxEl;
-			var state = { productId:0, max:1, selected:[], searchTimer:null, lastTerm:null };
+			var state = { productId:0, max:1, required:false, selected:[], searchTimer:null, lastTerm:null };
 
 			$(function(){
 				$overlay = $('#threeabarModal');
@@ -1037,6 +1114,7 @@ final class ThreeAbar_WC_Product_Addons {
 				$(document).on('click', '.threeabar-open-modal', function(){
 					state.productId = parseInt($(this).data('product-id'), 10) || 0;
 					state.max       = parseInt($(this).data('max'), 10) || 1;
+					state.required  = parseInt($(this).data('required'), 10) === 1;
 					state.selected  = [];
 					openModal();
 				});
@@ -1164,7 +1242,8 @@ final class ThreeAbar_WC_Product_Addons {
 
 			function updateConfirm(){
 				$count.text(state.selected.length);
-				$confirm.prop('disabled', state.selected.length === 0);
+				// عند كون الإضافات اختيارية يبقى الزر مفعّلًا دائمًا (يمكن الشراء بدون إضافات).
+				$confirm.prop('disabled', state.required && state.selected.length === 0);
 			}
 
 			function flash(msg){
@@ -1179,7 +1258,8 @@ final class ThreeAbar_WC_Product_Addons {
 			}
 
 			function addToCart(){
-				if (!state.selected.length){ return; }
+				// عند الإجبارية يجب اختيار إضافة واحدة على الأقل.
+				if (state.required && !state.selected.length){ return; }
 				$confirm.addClass('is-loading').prop('disabled', true);
 				$.ajax({
 					url: cfg.ajaxUrl,
