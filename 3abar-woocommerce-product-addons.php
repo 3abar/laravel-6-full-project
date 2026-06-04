@@ -450,6 +450,7 @@ if ( ! class_exists( 'Threeabar_WooCommerce_Product_Addons' ) ) {
 				$adjusted_price = $this->calculate_adjusted_price( $addon, $settings );
 				$image_url      = $this->get_product_image_url( $addon );
 				$original_price = (float) $addon->get_price();
+				$price_changed  = abs( $adjusted_price - $original_price ) > 0.0001;
 				$price_html     = wc_price( wc_get_price_to_display( $addon, array( 'price' => $adjusted_price ) ) );
 				$original_html  = wc_price( wc_get_price_to_display( $addon, array( 'price' => $original_price ) ) );
 
@@ -458,10 +459,10 @@ if ( ! class_exists( 'Threeabar_WooCommerce_Product_Addons' ) ) {
 					'name'           => $addon->get_name(),
 					'priceHtml'      => $price_html,
 					'originalHtml'   => $original_html,
-					'priceChanged'   => 'original' !== $settings['price_type'],
+					'priceChanged'   => $price_changed,
 					'image'          => $image_url,
 					'type'           => $settings['max_choices'] > 1 ? 'checkbox' : 'radio',
-					'adjustmentText' => $this->get_price_adjustment_label( $settings ),
+					'adjustmentText' => $price_changed ? $this->get_price_adjustment_label( $settings ) : $this->get_price_types()['original'],
 				);
 			}
 
@@ -722,7 +723,11 @@ if ( ! class_exists( 'Threeabar_WooCommerce_Product_Addons' ) ) {
 				return false;
 			}
 
-			return $this->product_has_addon_configuration( $product->get_id() );
+			if ( ! $this->product_has_addon_configuration( $product->get_id() ) ) {
+				return false;
+			}
+
+			return ! empty( $this->get_allowed_addon_product_ids( $product->get_id(), '', 1 ) );
 		}
 
 		/**
