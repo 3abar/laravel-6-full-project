@@ -913,6 +913,14 @@ final class ThreeAbar_WC_Product_Addons {
 				// اختيار/إلغاء اختيار بطاقة.
 				$results.on('click', '.threeabar-card', function(){ toggleCard($(this)); });
 
+				// دعم لوحة المفاتيح (Enter / Space) للوصولية.
+				$results.on('keydown', '.threeabar-card', function(e){
+					if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+						e.preventDefault();
+						toggleCard($(this));
+					}
+				});
+
 				// تأكيد الإضافة للسلة.
 				$confirm.on('click', addToCart);
 			}
@@ -968,15 +976,17 @@ final class ThreeAbar_WC_Product_Addons {
 				items.forEach(function(it){
 					var sel = state.selected.indexOf(it.id) !== -1 ? ' is-selected' : '';
 					var orig = it.orig_price ? '<del>'+ it.orig_price +'</del>' : '';
+					// نستخدم div بدلًا من label لتجنّب إطلاق حدث click مزدوج
+					// (الـ label المرتبط بـ input يطلق الحدث مرتين فيُلغي التحديد).
 					html += ''+
-					'<label class="threeabar-card'+ sel +'" data-id="'+ it.id +'">'+
-						'<input type="'+ type +'" name="threeabar_addon" value="'+ it.id +'" '+ (sel?'checked':'') +' />'+
+					'<div class="threeabar-card'+ sel +'" data-id="'+ it.id +'" role="button" tabindex="0" aria-pressed="'+ (sel?'true':'false') +'">'+
+						'<input type="'+ type +'" name="threeabar_addon" value="'+ it.id +'" '+ (sel?'checked':'') +' tabindex="-1" aria-hidden="true" />'+
 						'<img src="'+ it.image +'" alt="" loading="lazy" />'+
 						'<div class="threeabar-card-info">'+
 							'<p class="threeabar-card-name">'+ it.name +'</p>'+
 							'<div class="threeabar-card-price">'+ it.price_html + orig +'</div>'+
 						'</div>'+
-					'</label>';
+					'</div>';
 				});
 				$results.html(html);
 			}
@@ -988,22 +998,22 @@ final class ThreeAbar_WC_Product_Addons {
 				if (state.max <= 1){
 					// راديو: اختيار واحد فقط.
 					state.selected = (idx !== -1) ? [] : [id];
-					$results.find('.threeabar-card').removeClass('is-selected').find('input').prop('checked',false);
+					$results.find('.threeabar-card').removeClass('is-selected').attr('aria-pressed','false').find('input').prop('checked',false);
 					if (state.selected.length){
-						$card.addClass('is-selected').find('input').prop('checked',true);
+						$card.addClass('is-selected').attr('aria-pressed','true').find('input').prop('checked',true);
 					}
 				} else {
 					// تشيك بوكس: حتى الحد الأقصى.
 					if (idx !== -1){
 						state.selected.splice(idx,1);
-						$card.removeClass('is-selected').find('input').prop('checked',false);
+						$card.removeClass('is-selected').attr('aria-pressed','false').find('input').prop('checked',false);
 					} else {
 						if (state.selected.length >= state.max){
 							flash(cfg.i18n ? cfg.i18n.maxReached : '');
 							return;
 						}
 						state.selected.push(id);
-						$card.addClass('is-selected').find('input').prop('checked',true);
+						$card.addClass('is-selected').attr('aria-pressed','true').find('input').prop('checked',true);
 					}
 				}
 				updateConfirm();
