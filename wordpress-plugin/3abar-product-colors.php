@@ -763,13 +763,23 @@ final class ThreeAbar_Product_Colors {
 		if ( ! $color ) {
 			return $item_data;
 		}
-		$value = esc_html( $color['name'] );
-		if ( (float) $color['price'] > 0 ) {
-			$value .= ' (+' . wp_strip_all_tags( wc_price( $color['price'] ) ) . ')';
+		// عيّنة لون مصغّرة بجانب الاسم.
+		if ( 'image' === $color['type'] && $color['image'] ) {
+			$img    = wp_get_attachment_image_url( $color['image'], 'thumbnail' );
+			$swatch = '<img src="' . esc_url( $img ) . '" style="width:20px;height:20px;border-radius:50%;object-fit:cover;vertical-align:middle;display:inline-block;margin-inline-end:6px" />';
+		} else {
+			$swatch = '<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' . esc_attr( $color['color'] ) . ';border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-inline-end:6px"></span>';
 		}
+
+		$display = $swatch . '<strong style="color:#8a5a12">' . esc_html( $color['name'] ) . '</strong>';
+		if ( (float) $color['price'] > 0 ) {
+			$display .= ' <span style="background:#2c7a4d;color:#fff;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700">+' . wp_strip_all_tags( wc_price( $color['price'] ) ) . '</span>';
+		}
+
 		$item_data[] = array(
-			'key'   => __( 'اللون', '3abar-product-colors' ),
-			'value' => $value,
+			'key'     => __( 'اللون', '3abar-product-colors' ),
+			'display' => $display,
+			'value'   => $color['name'],
 		);
 		return $item_data;
 	}

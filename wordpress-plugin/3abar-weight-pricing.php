@@ -318,8 +318,7 @@ final class ThreeAbar_Weight_Pricing {
 	 */
 	private function render_one_selector( $product, $attr, $available, $single ) {
 		$taxonomy = $attr['taxonomy'];
-		$var_attrs = $product->get_variation_attributes();
-		$slugs     = isset( $var_attrs[ $taxonomy ] ) ? array_values( array_filter( (array) $var_attrs[ $taxonomy ] ) ) : array();
+		$slugs    = $this->get_ordered_slugs( $product, $taxonomy );
 		if ( empty( $slugs ) ) {
 			return;
 		}
@@ -430,11 +429,15 @@ final class ThreeAbar_Weight_Pricing {
 		.threeabar-opt-group{margin:18px 0 22px}
 		.threeabar-opt-title{display:block;margin-bottom:12px;font-weight:700;font-size:1.05rem;color:#3a2a0c}
 		.threeabar-opt-options{display:flex;gap:12px;flex-wrap:wrap}
-		.threeabar-opt-btn{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:12px 24px;border:2px solid #ead9b3;background:#fff;border-radius:16px;cursor:pointer;font-size:1rem;font-weight:600;color:#3a2a0c;transition:all .25s;min-width:90px}
+		.threeabar-opt-btn{display:inline-flex;flex-direction:column;align-items:center;gap:4px;padding:12px 24px;border:2px solid #ead9b3;background:#fff;border-radius:16px;cursor:pointer;font-size:1rem;font-weight:700;color:#3a2a0c;transition:all .25s;min-width:96px}
 		.threeabar-opt-btn:hover:not(:disabled){border-color:#e0a73c;transform:translateY(-2px);box-shadow:0 10px 22px -14px rgba(184,128,28,.6)}
-		.threeabar-opt-price{font-size:.82rem;font-weight:700;color:#b97e16;opacity:.9}
-		.threeabar-opt-btn.selected{background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;border-color:#a16e12;box-shadow:0 10px 22px -10px rgba(184,128,28,.7)}
-		.threeabar-opt-btn.selected .threeabar-opt-price{color:#2a1e06}
+		.threeabar-opt-name{font-weight:800}
+		.threeabar-opt-price{font-size:.85rem;font-weight:800;color:#b97e16}
+		/* الحالة المحددة: خلفية ذهبية داكنة ونص أبيض واضح */
+		.threeabar-opt-btn.selected{background:linear-gradient(120deg,#7a5210 0%,#a16e12 55%,#c8881f 100%);color:#fff;border-color:#6b4410;box-shadow:0 12px 26px -10px rgba(122,82,16,.8);text-shadow:0 1px 2px rgba(0,0,0,.25)}
+		.threeabar-opt-btn.selected .threeabar-opt-name{color:#fff}
+		.threeabar-opt-btn.selected .threeabar-opt-price,
+		.threeabar-opt-btn.selected .threeabar-opt-price *{color:#ffe6ad!important;text-shadow:0 1px 2px rgba(0,0,0,.3)}
 		.threeabar-opt-btn:disabled{opacity:.4;cursor:not-allowed;text-decoration:line-through}
 
 		/* أزرار اللون */
@@ -623,6 +626,51 @@ final class ThreeAbar_Weight_Pricing {
 		}
 
 		return $list;
+	}
+
+	/**
+	 * استخراج قيم الخاصية (slugs) بنفس ترتيب لوحة التحكم تمامًا.
+	 *
+	 * نعتمد على ترتيب خيارات الخاصية المحفوظة على المنتج (get_options)
+	 * بدل get_variation_attributes الذي قد يعيد ترتيبًا مختلفًا.
+	 *
+	 * @param WC_Product $product  المنتج.
+	 * @param string     $taxonomy الخاصية.
+	 * @return string[]
+	 */
+	private function get_ordered_slugs( $product, $taxonomy ) {
+		$attributes = $product->get_attributes();
+		if ( ! isset( $attributes[ $taxonomy ] ) ) {
+			return array();
+		}
+		$attribute = $attributes[ $taxonomy ];
+
+		// القيم المستخدمة فعليًا في المتغيّرات (لاستبعاد ما لا متغيّر له).
+		$var_attrs = $product->get_variation_attributes();
+		$used      = isset( $var_attrs[ $taxonomy ] ) ? array_map( 'strval', (array) $var_attrs[ $taxonomy ] ) : array();
+		$use_filter = ! empty( $used );
+
+		$ordered = array();
+		if ( $attribute->is_taxonomy() ) {
+			foreach ( (array) $attribute->get_options() as $term_id ) {
+				$term = get_term( (int) $term_id, $taxonomy );
+				if ( $term && ! is_wp_error( $term ) ) {
+					$ordered[] = $term->slug;
+				}
+			}
+		} else {
+			foreach ( (array) $attribute->get_options() as $option ) {
+				$ordered[] = sanitize_title( $option );
+			}
+		}
+
+		if ( $use_filter ) {
+			$ordered = array_values( array_filter( $ordered, function ( $slug ) use ( $used ) {
+				return in_array( (string) $slug, $used, true );
+			} ) );
+		}
+
+		return $ordered;
 	}
 
 	/**

@@ -694,27 +694,44 @@ final class ThreeAbar_WC_Product_Addons {
 		$main_product = wc_get_product( $parent_id );
 		$main_price   = $main_product ? (float) wc_get_price_to_display( $main_product ) : 0;
 
-		$rows  = '';
-		$rows .= '<div class="threeabar-bundle">';
-		$rows .= '<div class="threeabar-bundle-line threeabar-bundle-head">';
-		$rows .= '<span class="threeabar-bundle-name">' . $name . '</span>';
-		$rows .= '<span class="threeabar-bundle-price">' . wc_price( $main_price ) . '</span>';
-		$rows .= '</div>';
-
-		$rows .= '<div class="threeabar-bundle-addons">';
+		// تجهيز بطاقات الإضافات.
+		$chips = '';
+		$count = 0;
 		foreach ( $cart_item['3abar_addons'] as $addon_id ) {
 			$addon = wc_get_product( absint( $addon_id ) );
 			if ( ! $addon ) {
 				continue;
 			}
-			$adj = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
-			$rows .= '<div class="threeabar-bundle-line threeabar-bundle-addon">';
-			$rows .= '<span class="threeabar-bundle-name"><span class="threeabar-bundle-plus">＋</span>' . esc_html( $addon->get_name() ) . '</span>';
-			$rows .= '<span class="threeabar-bundle-price">' . wc_price( $adj ) . '</span>';
+			++$count;
+			$adj      = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
+			$thumb    = $addon->get_image( 'woocommerce_gallery_thumbnail' );
+			$chips   .= '<div class="threeabar-addon-chip">'
+				. '<span class="threeabar-chip-thumb">' . $thumb . '</span>'
+				. '<span class="threeabar-chip-name">' . esc_html( $addon->get_name() ) . '</span>'
+				. '<span class="threeabar-chip-price">' . wc_price( $adj ) . '</span>'
+				. '</div>';
+		}
+
+		$rows  = '<div class="threeabar-bundle">';
+		$rows .= '<div class="threeabar-bundle-top">';
+		$rows .= '<span class="threeabar-bundle-badge">🎁 ' . esc_html__( 'حزمة', '3abar-wc-addons' ) . '</span>';
+		$rows .= '<span class="threeabar-bundle-main-name">' . $name . '</span>';
+		$rows .= '<span class="threeabar-bundle-main-price">' . wc_price( $main_price ) . '</span>';
+		$rows .= '</div>';
+
+		if ( $chips ) {
+			$rows .= '<div class="threeabar-bundle-addons">';
+			$rows .= '<div class="threeabar-bundle-addons-label"><span class="threeabar-spark">✦</span> '
+				. sprintf(
+					/* translators: %d addons count */
+					esc_html__( 'الإضافات المختارة (%d)', '3abar-wc-addons' ),
+					(int) $count
+				) . '</div>';
+			$rows .= '<div class="threeabar-bundle-chips">' . $chips . '</div>';
 			$rows .= '</div>';
 		}
-		$rows .= '</div>';
-		$rows .= '<div class="threeabar-bundle-foot">' . esc_html__( 'إجمالي الحزمة محسوب في خانة السعر', '3abar-wc-addons' ) . '</div>';
+
+		$rows .= '<div class="threeabar-bundle-foot">' . esc_html__( 'الإجمالي يشمل المنتج الأساسي وكل الإضافات', '3abar-wc-addons' ) . '</div>';
 		$rows .= '</div>';
 
 		return $rows;
@@ -1067,24 +1084,38 @@ final class ThreeAbar_WC_Product_Addons {
 	 */
 	private function cart_css() {
 		return '
-		/* صف الحزمة يظهر كمربع واحد متكامل */
-		.threeabar-bundle-row td{background:linear-gradient(180deg,#fffdf8,#fff8ea)!important;border-top:2px solid #e8cf94!important;border-bottom:2px solid #e8cf94!important}
-		.threeabar-bundle-row td:first-child{border-inline-start:4px solid #e0a73c!important}
-		.threeabar-bundle-row td.product-name{padding-block:16px!important}
-		.threeabar-bundle{display:flex;flex-direction:column;gap:6px}
-		.threeabar-bundle-line{display:flex;align-items:center;justify-content:space-between;gap:12px}
-		.threeabar-bundle-head .threeabar-bundle-name{font-weight:800;color:#3a2a0c;font-size:15px}
-		.threeabar-bundle-head .threeabar-bundle-name a{color:#3a2a0c!important;text-decoration:none}
-		.threeabar-bundle-addons{display:flex;flex-direction:column;gap:5px;margin-top:4px;padding-top:8px;border-top:1px dashed #e8cf94}
-		.threeabar-bundle-addon{font-size:13px;color:#6b5414}
-		.threeabar-bundle-addon .threeabar-bundle-name{display:flex;align-items:center;gap:6px;font-weight:600}
-		.threeabar-bundle-plus{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;font-size:12px;font-weight:800;line-height:1}
-		.threeabar-bundle-price{font-weight:700;color:#b97e16;white-space:nowrap;font-size:13px}
-		.threeabar-bundle-head .threeabar-bundle-price{font-size:14px}
-		.threeabar-bundle-foot{margin-top:8px;font-size:11px;color:#a8986f;font-style:italic}
+		/* صف الحزمة يظهر كبطاقة واحدة أنيقة */
+		.threeabar-bundle-row td{background:linear-gradient(180deg,#fffdf8,#fff6e4)!important;border-top:2px solid #ecd79e!important;border-bottom:2px solid #ecd79e!important}
+		.threeabar-bundle-row td:first-child{border-inline-start:5px solid #e0a73c!important}
+		.threeabar-bundle-row td.product-name{padding-block:18px!important}
+		.threeabar-bundle{display:flex;flex-direction:column;gap:12px}
+
+		.threeabar-bundle-top{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+		.threeabar-bundle-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(120deg,#7a5210,#c8881f);color:#fff;font-weight:800;font-size:12px;padding:5px 12px;border-radius:30px;box-shadow:0 6px 14px -6px rgba(122,82,16,.7);letter-spacing:.3px}
+		.threeabar-bundle-main-name{font-weight:800;color:#2e2106;font-size:15.5px;flex:1;min-width:120px}
+		.threeabar-bundle-main-name a{color:#2e2106!important;text-decoration:none}
+		.threeabar-bundle-main-price{font-weight:800;color:#fff;background:linear-gradient(120deg,#b97e16,#e0a73c);padding:4px 12px;border-radius:10px;font-size:13.5px;white-space:nowrap;box-shadow:0 6px 14px -8px rgba(184,128,28,.8)}
+
+		.threeabar-bundle-addons{position:relative;padding:12px 14px;background:rgba(255,255,255,.65);border:1px dashed #e3c98a;border-radius:14px}
+		.threeabar-bundle-addons-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#9a6f15;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+		.threeabar-spark{color:#e0a73c}
+		.threeabar-bundle-chips{display:flex;flex-direction:column;gap:8px}
+		.threeabar-addon-chip{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#ffffff,#fff8ea);border:1px solid #efdcae;border-radius:12px;padding:7px 10px;transition:transform .2s,box-shadow .2s}
+		.threeabar-addon-chip:hover{transform:translateX(-3px);box-shadow:0 8px 18px -12px rgba(184,128,28,.6)}
+		.threeabar-chip-thumb img{width:38px;height:38px;border-radius:9px;object-fit:cover;display:block;margin:0!important;box-shadow:0 2px 6px -3px rgba(0,0,0,.3)}
+		.threeabar-chip-name{flex:1;font-weight:700;color:#4a3409;font-size:13px}
+		.threeabar-chip-price{font-weight:800;color:#fff;background:linear-gradient(120deg,#2c7a4d,#3a9a63);padding:3px 10px;border-radius:20px;font-size:12px;white-space:nowrap}
+
+		.threeabar-bundle-foot{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#a8986f;font-style:italic}
+		.threeabar-bundle-foot:before{content:"\2714";color:#3a9a63;font-style:normal;font-weight:800}
 		.threeabar-bundle-qty-note{display:block;margin-top:4px;font-size:11px;color:#a8986f}
+
+		/* عرض اللون (من بلاجن الألوان) داخل تفاصيل العنصر */
+		.threeabar-bundle-row .variation,
+		.threeabar-bundle-row .wc-item-meta{margin-top:6px}
+
 		/* دعم سلة البلوكات (Block Cart) */
-		.wc-block-cart-items__row.threeabar-bundle-row{background:linear-gradient(180deg,#fffdf8,#fff8ea)}
+		.wc-block-cart-items__row.threeabar-bundle-row{background:linear-gradient(180deg,#fffdf8,#fff6e4)}
 		';
 	}
 
