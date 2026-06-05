@@ -1019,6 +1019,13 @@ final class ThreeAbar_WC_Product_Addons {
 		.threeabar-open-modal:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 22px 44px -14px rgba(224,167,60,.95)}
 		.threeabar-open-modal:hover:before{transform:translateX(120%)}
 		.threeabar-cta-icon{font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}
+		/* حالة التعطيل عند وجود لون إجباري غير مختار */
+		.threeabar-open-modal.is-disabled{opacity:.5;filter:grayscale(.35);cursor:not-allowed;box-shadow:none}
+		.threeabar-open-modal.is-disabled:hover{transform:none}
+		.threeabar-open-modal.is-disabled:hover:before{transform:translateX(-120%)}
+		/* اهتزاز تنبيهي لبند اللون */
+		.threeabar-shake{animation:threeabarShake .5s}
+		@keyframes threeabarShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
 		/* نسخة مصغّرة للزر داخل قوائم المنتجات (Catalog) */
 		.threeabar-loop-btn{display:inline-flex!important;align-items:center;gap:8px;padding:10px 18px!important;font-size:14px!important;border-radius:12px!important;box-shadow:0 10px 22px -12px rgba(184,128,28,.85)}
 		.threeabar-loop-btn .threeabar-cta-icon{font-size:16px}
@@ -1167,14 +1174,22 @@ final class ThreeAbar_WC_Product_Addons {
 			});
 
 			function bindEvents(){
-				// فتح النافذة من الزر المخصص.
+				// فتح النافذة من الزر المخصص (مع منع الفتح لو اللون الإجباري غير مختار).
 				$(document).on('click', '.threeabar-open-modal', function(){
+					if (colorRequiredMissing()){
+						promptColor();
+						return;
+					}
 					state.productId = parseInt($(this).data('product-id'), 10) || 0;
 					state.max       = parseInt($(this).data('max'), 10) || 1;
 					state.required  = parseInt($(this).data('required'), 10) === 1;
 					state.selected  = [];
 					openModal();
 				});
+
+				// مزامنة حالة الزر مع اختيار اللون الإجباري.
+				$(document.body).on('threeabar_color_changed', refreshCtaState);
+				refreshCtaState();
 
 				// إغلاق النافذة.
 				$overlay.on('click', '.threeabar-modal-close', closeModal);
@@ -1201,6 +1216,29 @@ final class ThreeAbar_WC_Product_Addons {
 
 				// تأكيد الإضافة للسلة.
 				$confirm.on('click', addToCart);
+			}
+
+			// هل يوجد لون إجباري لم يُختر بعد؟ (من بلاجن الألوان)
+			function colorRequiredMissing(){
+				var $w = $('.threeabar-colors-wrap');
+				return $w.length && $w.data('required') == 1 && !$w.find('.threeabar-color-input').val();
+			}
+
+			// تعطيل/تفعيل زر "اختر الإضافات" حسب اختيار اللون الإجباري.
+			function refreshCtaState(){
+				var miss = colorRequiredMissing();
+				$('.threeabar-open-modal').toggleClass('is-disabled', !!miss).attr('aria-disabled', miss ? 'true' : 'false');
+			}
+
+			// إشعار بضرورة اختيار اللون أولًا + تمرير إليه.
+			function promptColor(){
+				flash(cfg.i18n ? cfg.i18n.chooseColor : '');
+				var $w = $('.threeabar-colors-wrap');
+				if ($w.length){
+					$('html,body').animate({ scrollTop: $w.offset().top - 120 }, 400);
+					$w.addClass('threeabar-shake');
+					setTimeout(function(){ $w.removeClass('threeabar-shake'); }, 600);
+				}
 			}
 
 			function openModal(){
