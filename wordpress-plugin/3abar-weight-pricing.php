@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: 3abar Weight Pricing
+ * Plugin Name: 3abar Weight & Options Pricing
  * Plugin URI:  https://3abar.com
- * Description: حل احترافي لمنتجات الوزن في WooCommerce: أزرار وزن مرتّبة حسب لوحة التحكم، تحديد الوزن الافتراضي، سعر إجمالي ديناميكي (وزن × كمية) بتنسيق العملة الصحيح — مع إخفاء السعر الافتراضي لمنتجات الوزن فقط، وعدم المساس بأسعار باقي المنتجات (البسيطة وغير ذات الوزن تظل تعرض سعرها طبيعيًا).
- * Version:     1.1.0
+ * Description: حل احترافي لمنتجات الوزن والخيارات في WooCommerce: أزرار وزن/لون مرتّبة حسب لوحة التحكم، سعر إجمالي ديناميكي (السعر × الكمية) بتنسيق العملة الصحيح، تحديد الافتراضي، وصفحة إعدادات لتغيير المسمّيات وتفعيل خيار اللون — مع إخفاء السعر الافتراضي لمنتجات الوزن فقط دون المساس بباقي المنتجات.
+ * Version:     1.2.0
  * Author:      Shawky El Moazamy
  * Author URI:  https://3abar.com
  * Text Domain: 3abar-weight-pricing
@@ -12,13 +12,6 @@
  * WC tested up to: 9.0
  *
  * @package ThreeAbar_Weight_Pricing
- *
- * ملاحظات التطوير مقارنةً بالكود الأصلي:
- * 1) لا يُخفى السعر عالميًا — يقتصر التأثير على منتجات الوزن المتغيّرة فقط،
- *    لذلك تظهر المنتجات البسيطة والمتغيّرة بدون "pa_weight" بسعرها الطبيعي.
- * 2) سعر ابتدائي حقيقي (الافتراضي أو الأدنى) بدل صفر.
- * 3) تنسيق العملة يُؤخذ من إعدادات WooCommerce بدل "OMR" الثابت.
- * 4) إزالة التكرار في الأوزان عبر خريطة slug ⇒ variation مع الحفاظ على ترتيب لوحة التحكم.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -26,14 +19,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * الكلاس الرئيسي لتسعير الوزن.
+ * الكلاس الرئيسي لتسعير الوزن والخيارات.
  */
 final class ThreeAbar_Weight_Pricing {
 
 	/**
-	 * اسم خاصية الوزن (taxonomy).
+	 * مفتاح خيار الإعدادات.
 	 */
-	const ATTR = 'pa_weight';
+	const OPTION = 'threeabar_wp_settings';
 
 	/**
 	 * النسخة الوحيدة.
@@ -43,11 +36,18 @@ final class ThreeAbar_Weight_Pricing {
 	private static $instance = null;
 
 	/**
-	 * هل الصفحة الحالية منتج وزن (لتفعيل الأصول)؟
+	 * هل الصفحة الحالية منتج مستهدف (لتفعيل الأصول)؟
 	 *
 	 * @var bool
 	 */
-	private $is_weight_page = false;
+	private $is_target_page = false;
+
+	/**
+	 * إعدادات مُحمّلة (كاش).
+	 *
+	 * @var array|null
+	 */
+	private $settings = null;
 
 	/**
 	 * الحصول على النسخة الوحيدة.
@@ -81,10 +81,166 @@ final class ThreeAbar_Weight_Pricing {
 		add_action( 'wp', array( $this, 'setup_single_product' ) );
 		add_filter( 'body_class', array( $this, 'body_class' ) );
 		add_filter( 'woocommerce_get_variation_prices_hash', array( $this, 'price_hash' ), 99, 3 );
+
+		// صفحة الإعدادات.
+		add_action( 'admin_menu', array( $this, 'register_settings_page' ) );
+		add_action( 'admin_init', array( $this, 'register_settings' ) );
+		add_filter( 'plugin_action_links_' . plugin_basename( __FILE__ ), array( $this, 'settings_link' ) );
+	}
+
+	/* =====================================================================
+	 *  الإعدادات
+	 * ===================================================================== */
+
+	/**
+	 * الإعدادات الافتراضية المدموجة مع المحفوظة.
+	 *
+	 * @return array
+	 */
+	public function get_settings() {
+		if ( null !== $this->settings ) {
+			return $this->settings;
+		}
+		$defaults = array(
+			'price_label'     => __( 'السعر الإجمالي حسب الوزن والكمية', '3abar-weight-pricing' ),
+			'choose_text'     => __( 'اختر الخيارات لعرض السعر', '3abar-weight-pricing' ),
+			'weight_taxonomy' => 'pa_weight',
+			'weight_label'    => __( 'اختر الوزن:', '3abar-weight-pricing' ),
+			'color_enabled'   => 0,
+			'color_taxonomy'  => 'pa_color',
+			'color_label'     => __( 'اختر اللون:', '3abar-weight-pricing' ),
+		);
+		$saved          = get_option( self::OPTION, array() );
+		$this->settings = wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
+		return $this->settings;
 	}
 
 	/**
-	 * تجهيز صفحة المنتج: لا نتدخّل إلا لمنتجات الوزن المتغيّرة.
+	 * تسجيل صفحة الإعدادات تحت قائمة WooCommerce.
+	 *
+	 * @return void
+	 */
+	public function register_settings_page() {
+		add_submenu_page(
+			'woocommerce',
+			__( 'إعدادات الوزن والخيارات (3abar)', '3abar-weight-pricing' ),
+			__( '3abar الوزن والخيارات', '3abar-weight-pricing' ),
+			'manage_woocommerce',
+			'threeabar-weight-pricing',
+			array( $this, 'render_settings_page' )
+		);
+	}
+
+	/**
+	 * تسجيل الإعداد والتعقيم.
+	 *
+	 * @return void
+	 */
+	public function register_settings() {
+		register_setting(
+			'threeabar_wp_group',
+			self::OPTION,
+			array(
+				'type'              => 'array',
+				'sanitize_callback' => array( $this, 'sanitize_settings' ),
+			)
+		);
+	}
+
+	/**
+	 * تعقيم الإعدادات قبل الحفظ.
+	 *
+	 * @param array $input المدخلات.
+	 * @return array
+	 */
+	public function sanitize_settings( $input ) {
+		$input = is_array( $input ) ? $input : array();
+		return array(
+			'price_label'     => sanitize_text_field( $input['price_label'] ?? '' ),
+			'choose_text'     => sanitize_text_field( $input['choose_text'] ?? '' ),
+			'weight_taxonomy' => sanitize_key( $input['weight_taxonomy'] ?? 'pa_weight' ),
+			'weight_label'    => sanitize_text_field( $input['weight_label'] ?? '' ),
+			'color_enabled'   => empty( $input['color_enabled'] ) ? 0 : 1,
+			'color_taxonomy'  => sanitize_key( $input['color_taxonomy'] ?? 'pa_color' ),
+			'color_label'     => sanitize_text_field( $input['color_label'] ?? '' ),
+		);
+	}
+
+	/**
+	 * رابط الإعدادات في صفحة الإضافات.
+	 *
+	 * @param array $links الروابط.
+	 * @return array
+	 */
+	public function settings_link( $links ) {
+		$url  = admin_url( 'admin.php?page=threeabar-weight-pricing' );
+		$link = '<a href="' . esc_url( $url ) . '">' . esc_html__( 'الإعدادات', '3abar-weight-pricing' ) . '</a>';
+		array_unshift( $links, $link );
+		return $links;
+	}
+
+	/**
+	 * عرض صفحة الإعدادات.
+	 *
+	 * @return void
+	 */
+	public function render_settings_page() {
+		$s = $this->get_settings();
+		?>
+		<div class="wrap threeabar-settings">
+			<h1><?php esc_html_e( 'إعدادات الوزن والخيارات — 3abar', '3abar-weight-pricing' ); ?></h1>
+			<p class="description"><?php esc_html_e( 'تحكّم في مسمّيات الخيارات الظاهرة للعميل (اختر الوزن / اختر اللون) وتفعيل خيار اللون.', '3abar-weight-pricing' ); ?></p>
+			<form method="post" action="options.php">
+				<?php settings_fields( 'threeabar_wp_group' ); ?>
+				<table class="form-table" role="presentation">
+					<tr>
+						<th scope="row"><label for="tw_price_label"><?php esc_html_e( 'مسمّى صندوق السعر', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_price_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[price_label]" value="<?php echo esc_attr( $s['price_label'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="tw_choose_text"><?php esc_html_e( 'نص قبل الاختيار', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_choose_text" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[choose_text]" value="<?php echo esc_attr( $s['choose_text'] ); ?>" />
+						<p class="description"><?php esc_html_e( 'يظهر داخل صندوق السعر قبل اختيار العميل لخياراته.', '3abar-weight-pricing' ); ?></p></td>
+					</tr>
+
+					<tr><th colspan="2"><h2><?php esc_html_e( 'خيار الوزن', '3abar-weight-pricing' ); ?></h2></th></tr>
+					<tr>
+						<th scope="row"><label for="tw_weight_label"><?php esc_html_e( 'مسمّى اختيار الوزن', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_weight_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[weight_label]" value="<?php echo esc_attr( $s['weight_label'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="tw_weight_tax"><?php esc_html_e( 'خاصية الوزن (Taxonomy)', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_weight_tax" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[weight_taxonomy]" value="<?php echo esc_attr( $s['weight_taxonomy'] ); ?>" />
+						<p class="description"><?php esc_html_e( 'عادةً: pa_weight', '3abar-weight-pricing' ); ?></p></td>
+					</tr>
+
+					<tr><th colspan="2"><h2><?php esc_html_e( 'خيار اللون', '3abar-weight-pricing' ); ?></h2></th></tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'تفعيل خيار اللون', '3abar-weight-pricing' ); ?></th>
+						<td><label><input type="checkbox" name="<?php echo esc_attr( self::OPTION ); ?>[color_enabled]" value="1" <?php checked( ! empty( $s['color_enabled'] ) ); ?> /> <?php esc_html_e( 'إظهار أزرار اللون عندما يستخدمها المنتج', '3abar-weight-pricing' ); ?></label></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="tw_color_label"><?php esc_html_e( 'مسمّى اختيار اللون', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_color_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[color_label]" value="<?php echo esc_attr( $s['color_label'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th scope="row"><label for="tw_color_tax"><?php esc_html_e( 'خاصية اللون (Taxonomy)', '3abar-weight-pricing' ); ?></label></th>
+						<td><input type="text" id="tw_color_tax" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[color_taxonomy]" value="<?php echo esc_attr( $s['color_taxonomy'] ); ?>" />
+						<p class="description"><?php esc_html_e( 'عادةً: pa_color', '3abar-weight-pricing' ); ?></p></td>
+					</tr>
+				</table>
+				<?php submit_button(); ?>
+			</form>
+		</div>
+		<?php
+	}
+
+	/* =====================================================================
+	 *  تجهيز صفحة المنتج
+	 * ===================================================================== */
+
+	/**
+	 * لا نتدخّل إلا للمنتجات المتغيّرة التي تستخدم خاصية مستهدفة (وزن/لون).
 	 *
 	 * @return void
 	 */
@@ -94,19 +250,17 @@ final class ThreeAbar_Weight_Pricing {
 		}
 
 		$product = $this->get_current_product();
-		if ( ! $this->is_weight_variable( $product ) ) {
-			return; // المنتجات الأخرى تبقى بسعرها الطبيعي دون أي تعديل.
+		if ( ! $this->product_is_target( $product ) ) {
+			return;
 		}
 
-		$this->is_weight_page = true;
+		$this->is_target_page = true;
 
-		// إخفاء السعر الافتراضي لمنتج الوزن فقط.
 		remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_price', 10 );
 		add_filter( 'woocommerce_show_variation_price', '__return_false' );
 
-		// عناصرنا المخصصة.
 		add_action( 'woocommerce_single_product_summary', array( $this, 'render_dynamic_price' ), 11 );
-		add_action( 'woocommerce_before_add_to_cart_button', array( $this, 'render_weight_buttons' ), 5 );
+		add_action( 'woocommerce_before_add_to_cart_button', array( $this, 'render_selectors' ), 5 );
 		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_assets' ) );
 	}
 
@@ -117,31 +271,31 @@ final class ThreeAbar_Weight_Pricing {
 	 * @return array
 	 */
 	public function body_class( $classes ) {
-		if ( $this->is_weight_page ) {
+		if ( $this->is_target_page ) {
 			$classes[] = 'threeabar-weight-product';
 		}
 		return $classes;
 	}
 
 	/* =====================================================================
-	 *  العرض
+	 *  العرض في الواجهة
 	 * ===================================================================== */
 
 	/**
-	 * عرض حاوية السعر الديناميكي مع سعر ابتدائي حقيقي.
+	 * صندوق السعر الديناميكي مع سعر ابتدائي حقيقي.
 	 *
 	 * @return void
 	 */
 	public function render_dynamic_price() {
 		$product = $this->get_current_product();
-		if ( ! $this->is_weight_variable( $product ) ) {
+		if ( ! $this->product_is_target( $product ) ) {
 			return;
 		}
-
-		$initial = $this->get_initial_price( $product );
+		$s       = $this->get_settings();
+		$initial = (float) $product->get_variation_price( 'min', true );
 		?>
 		<div class="threeabar-price-box">
-			<span class="threeabar-price-label"><?php esc_html_e( 'السعر الإجمالي حسب الوزن والكمية', '3abar-weight-pricing' ); ?></span>
+			<span class="threeabar-price-label"><?php echo esc_html( $s['price_label'] ); ?></span>
 			<div class="threeabar-dynamic-price" data-initial="<?php echo esc_attr( $initial ); ?>">
 				<?php echo wp_kses_post( wc_price( $initial ) ); ?>
 			</div>
@@ -150,50 +304,88 @@ final class ThreeAbar_Weight_Pricing {
 	}
 
 	/**
-	 * عرض أزرار الوزن مرتّبة حسب لوحة التحكم وبدون تكرار.
+	 * عرض كل محدّدات الخيارات (وزن/لون) مرتّبة وبدون تكرار.
 	 *
 	 * @return void
 	 */
-	public function render_weight_buttons() {
+	public function render_selectors() {
 		$product = $this->get_current_product();
-		if ( ! $this->is_weight_variable( $product ) ) {
+		if ( ! $this->product_is_target( $product ) ) {
 			return;
 		}
 
-		// خريطة slug ⇒ متغيّر (تحافظ على أول متغيّر مرئي لكل وزن وتمنع التكرار).
-		$variation_map = $this->get_weight_variation_map( $product );
-		if ( empty( $variation_map ) ) {
+		$attributes = $this->get_selector_attributes( $product );
+		if ( empty( $attributes ) ) {
 			return;
 		}
 
-		// الترتيب حسب لوحة التحكم: نأخذ ترتيب مصطلحات الخاصية كما هو مُعرّف للمنتج.
-		$ordered_terms = wc_get_product_terms( $product->get_id(), self::ATTR, array( 'fields' => 'all' ) );
-		$default_slug  = $this->get_default_slug( $product );
+		$available = $product->get_available_variations();
+		$single    = ( 1 === count( $attributes ) );
+
+		foreach ( $attributes as $attr ) {
+			$this->render_one_selector( $product, $attr, $available, $single );
+		}
+	}
+
+	/**
+	 * عرض محدّد واحد (مجموعة أزرار لخاصية معيّنة).
+	 *
+	 * @param WC_Product $product   المنتج.
+	 * @param array      $attr      وصف الخاصية (taxonomy/label/is_color).
+	 * @param array      $available المتغيّرات المتاحة.
+	 * @param bool       $single    هل توجد خاصية واحدة فقط؟
+	 * @return void
+	 */
+	private function render_one_selector( $product, $attr, $available, $single ) {
+		$taxonomy = $attr['taxonomy'];
+		$var_attrs = $product->get_variation_attributes();
+		$slugs     = isset( $var_attrs[ $taxonomy ] ) ? array_values( array_filter( (array) $var_attrs[ $taxonomy ] ) ) : array();
+		if ( empty( $slugs ) ) {
+			return;
+		}
+
+		$default_slug = $this->get_default_slug( $product, $taxonomy );
 		?>
-		<div class="threeabar-weight-wrap">
-			<label class="threeabar-weight-title"><?php esc_html_e( 'اختر الوزن:', '3abar-weight-pricing' ); ?></label>
-			<div class="threeabar-weight-options">
+		<div class="threeabar-opt-group<?php echo $attr['is_color'] ? ' is-color' : ''; ?>" data-attr="<?php echo esc_attr( $taxonomy ); ?>">
+			<label class="threeabar-opt-title"><?php echo esc_html( $attr['label'] ); ?></label>
+			<div class="threeabar-opt-options">
 				<?php
-				foreach ( $ordered_terms as $term ) {
-					if ( ! isset( $variation_map[ $term->slug ] ) ) {
-						continue;
+				foreach ( $slugs as $slug ) {
+					$term  = get_term_by( 'slug', $slug, $taxonomy );
+					$name  = $term ? $term->name : ucfirst( str_replace( '-', ' ', $slug ) );
+					$price = null;
+					$stock = false;
+
+					foreach ( $available as $v ) {
+						$vslug = isset( $v['attributes'][ 'attribute_' . $taxonomy ] ) ? $v['attributes'][ 'attribute_' . $taxonomy ] : '';
+						if ( '' === $vslug || $vslug === $slug ) {
+							if ( ! empty( $v['is_in_stock'] ) ) {
+								$stock = true;
+							}
+							if ( null === $price && isset( $v['display_price'] ) ) {
+								$price = (float) $v['display_price'];
+							}
+						}
 					}
-					$variation = $variation_map[ $term->slug ];
-					$price     = (float) wc_get_price_to_display( $variation );
-					$in_stock  = $variation->is_in_stock();
-					$is_def    = ( $default_slug && $default_slug === $term->slug );
+
+					$is_def    = ( '' !== $default_slug && $default_slug === $slug );
+					$data_price = ( $single && null !== $price ) ? $price : '';
+
+					$color = '';
+					if ( $attr['is_color'] ) {
+						$color = $this->get_color_value( $term, $slug );
+					}
 
 					printf(
-						'<button type="button" class="threeabar-weight-btn%1$s" data-slug="%2$s" data-price="%3$s"%4$s>'
-						. '<span class="threeabar-weight-name">%5$s</span>'
-						. '<span class="threeabar-weight-unit-price">%6$s</span>'
-						. '</button>',
+						'<button type="button" class="threeabar-opt-btn%1$s%2$s" data-slug="%3$s" data-price="%4$s"%5$s>%6$s<span class="threeabar-opt-name">%7$s</span>%8$s</button>',
 						$is_def ? ' selected' : '',
-						esc_attr( $term->slug ),
-						esc_attr( $price ),
-						$in_stock ? '' : ' disabled',
-						esc_html( $term->name ),
-						wp_kses_post( wc_price( $price ) )
+						$attr['is_color'] ? ' color-btn' : '',
+						esc_attr( $slug ),
+						esc_attr( $data_price ),
+						$stock ? '' : ' disabled',
+						$color ? '<span class="threeabar-color-dot" style="background:' . esc_attr( $color ) . '"></span>' : '',
+						esc_html( $name ),
+						( $single && null !== $price ) ? '<span class="threeabar-opt-price">' . wp_kses_post( wc_price( $price ) ) . '</span>' : ''
 					);
 				}
 				?>
@@ -207,14 +399,15 @@ final class ThreeAbar_Weight_Pricing {
 	 * ===================================================================== */
 
 	/**
-	 * تحميل الأصول لمنتج الوزن فقط.
+	 * تحميل الأصول للمنتج المستهدف فقط.
 	 *
 	 * @return void
 	 */
 	public function enqueue_assets() {
-		if ( ! $this->is_weight_page ) {
+		if ( ! $this->is_target_page ) {
 			return;
 		}
+		$s = $this->get_settings();
 
 		wp_enqueue_script( 'jquery' );
 
@@ -224,13 +417,10 @@ final class ThreeAbar_Weight_Pricing {
 			'decimalSep'  => wc_get_price_decimal_separator(),
 			'thousandSep' => wc_get_price_thousand_separator(),
 			'format'      => get_woocommerce_price_format(),
-			'attr'        => self::ATTR,
-			'i18n'        => array(
-				'choose' => __( 'اختر الوزن لعرض السعر', '3abar-weight-pricing' ),
-			),
+			'i18n'        => array( 'choose' => $s['choose_text'] ),
 		);
 
-		wp_register_style( '3abar-weight-pricing', false, array(), '1.1.0' );
+		wp_register_style( '3abar-weight-pricing', false, array(), '1.2.0' );
 		wp_enqueue_style( '3abar-weight-pricing' );
 		wp_add_inline_style( '3abar-weight-pricing', $this->css() );
 
@@ -239,13 +429,12 @@ final class ThreeAbar_Weight_Pricing {
 	}
 
 	/**
-	 * أنماط منتج الوزن (مع تحديد النطاق على body.threeabar-weight-product).
+	 * أنماط المنتج (بنطاق body.threeabar-weight-product).
 	 *
 	 * @return string
 	 */
 	private function css() {
 		return '
-		/* إخفاء السعر الافتراضي لمنتج الوزن فقط (لا يؤثر على باقي المنتجات) */
 		body.threeabar-weight-product .summary > .price,
 		body.threeabar-weight-product p.price,
 		body.threeabar-weight-product .woocommerce-variation-price,
@@ -258,20 +447,25 @@ final class ThreeAbar_Weight_Pricing {
 		.threeabar-dynamic-price .woocommerce-Price-amount{color:#b97e16}
 		.threeabar-dynamic-price.is-empty{font-size:1.1rem;color:#a8986f;font-weight:600}
 
-		.threeabar-weight-wrap{margin:20px 0 26px}
-		.threeabar-weight-title{display:block;margin-bottom:12px;font-weight:700;font-size:1.05rem;color:#3a2a0c}
-		.threeabar-weight-options{display:flex;gap:12px;flex-wrap:wrap}
-		.threeabar-weight-btn{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:12px 24px;border:2px solid #ead9b3;background:#fff;border-radius:16px;cursor:pointer;font-size:1rem;font-weight:600;color:#3a2a0c;transition:all .25s;min-width:96px}
-		.threeabar-weight-btn:hover:not(:disabled){border-color:#e0a73c;transform:translateY(-2px);box-shadow:0 10px 22px -14px rgba(184,128,28,.6)}
-		.threeabar-weight-btn .threeabar-weight-unit-price{font-size:.82rem;font-weight:700;color:#b97e16;opacity:.9}
-		.threeabar-weight-btn.selected{background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;border-color:#a16e12;box-shadow:0 10px 22px -10px rgba(184,128,28,.7)}
-		.threeabar-weight-btn.selected .threeabar-weight-unit-price{color:#2a1e06}
-		.threeabar-weight-btn:disabled{opacity:.4;cursor:not-allowed;text-decoration:line-through}
+		.threeabar-opt-group{margin:18px 0 22px}
+		.threeabar-opt-title{display:block;margin-bottom:12px;font-weight:700;font-size:1.05rem;color:#3a2a0c}
+		.threeabar-opt-options{display:flex;gap:12px;flex-wrap:wrap}
+		.threeabar-opt-btn{display:inline-flex;flex-direction:column;align-items:center;gap:3px;padding:12px 24px;border:2px solid #ead9b3;background:#fff;border-radius:16px;cursor:pointer;font-size:1rem;font-weight:600;color:#3a2a0c;transition:all .25s;min-width:90px}
+		.threeabar-opt-btn:hover:not(:disabled){border-color:#e0a73c;transform:translateY(-2px);box-shadow:0 10px 22px -14px rgba(184,128,28,.6)}
+		.threeabar-opt-price{font-size:.82rem;font-weight:700;color:#b97e16;opacity:.9}
+		.threeabar-opt-btn.selected{background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;border-color:#a16e12;box-shadow:0 10px 22px -10px rgba(184,128,28,.7)}
+		.threeabar-opt-btn.selected .threeabar-opt-price{color:#2a1e06}
+		.threeabar-opt-btn:disabled{opacity:.4;cursor:not-allowed;text-decoration:line-through}
+
+		/* أزرار اللون */
+		.threeabar-opt-group.is-color .threeabar-opt-btn{flex-direction:row;gap:8px;padding:10px 18px}
+		.threeabar-color-dot{width:20px;height:20px;border-radius:50%;border:2px solid rgba(0,0,0,.12);box-shadow:inset 0 0 0 2px #fff;display:inline-block}
+		.threeabar-opt-btn.color-btn.selected .threeabar-color-dot{border-color:#fff}
 		';
 	}
 
 	/**
-	 * سكربت منتج الوزن.
+	 * سكربت المنتج (يدعم أي عدد من المحدّدات).
 	 *
 	 * @return string
 	 */
@@ -285,8 +479,7 @@ final class ThreeAbar_Weight_Pricing {
 			function formatMoney(amount){
 				var n = parseFloat(amount); if(isNaN(n)){ n = 0; }
 				var dec = parseInt(cfg.decimals,10); if(isNaN(dec)){ dec = 2; }
-				var fixed = n.toFixed(dec);
-				var parts = fixed.split('.');
+				var parts = n.toFixed(dec).split('.');
 				parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, cfg.thousandSep || ',');
 				var num = parts.length > 1 ? parts[0] + (cfg.decimalSep || '.') + parts[1] : parts[0];
 				var fmt = cfg.format || '%1$s%2$s';
@@ -298,13 +491,14 @@ final class ThreeAbar_Weight_Pricing {
 				var $form = $('form.variations_form');
 				if(!$form.length){ return; }
 
-				var $price   = $('.threeabar-dynamic-price');
-				var $qty     = $form.find('input.qty');
-				var current  = parseFloat($price.data('initial')) || 0;
+				var $price  = $('.threeabar-dynamic-price');
+				var $qty    = $form.find('input.qty');
+				var current = parseFloat($price.data('initial')) || 0;
 
-				function selectBtn(slug){
-					$('.threeabar-weight-btn').removeClass('selected');
-					if(slug){ $('.threeabar-weight-btn[data-slug="'+ slug +'"]').addClass('selected'); }
+				function markSelected(attr, val){
+					var $g = $('.threeabar-opt-group[data-attr="'+ attr +'"]');
+					$g.find('.threeabar-opt-btn').removeClass('selected');
+					if(val){ $g.find('.threeabar-opt-btn[data-slug="'+ val +'"]').addClass('selected'); }
 				}
 
 				function render(){
@@ -316,21 +510,25 @@ final class ThreeAbar_Weight_Pricing {
 					}
 				}
 
-				// نقر زر الوزن: يضبط قائمة المتغيّرات الأصلية (للحفاظ على عمل الإضافة للسلة).
-				$(document).on('click', '.threeabar-weight-btn:not(:disabled)', function(){
-					var slug = $(this).data('slug');
-					current  = parseFloat($(this).data('price')) || current; // تحديث فوري سريع.
-					selectBtn(slug);
-					$form.find('select[name="attribute_' + cfg.attr + '"]').val(slug).trigger('change');
+				$(document).on('click', '.threeabar-opt-btn:not(:disabled)', function(){
+					var $b   = $(this);
+					var attr = $b.closest('.threeabar-opt-group').data('attr');
+					var slug = $b.data('slug');
+					var dp   = $b.data('price');
+					if(dp !== undefined && dp !== ''){ current = parseFloat(dp) || current; }
+					markSelected(attr, slug);
+					$form.find('select[name="attribute_' + attr + '"]').val(slug).trigger('change');
 					render();
 				});
 
-				// المصدر الموثوق للسعر عند تطابق المتغيّر.
+				// المصدر الموثوق للسعر عند تطابق كل الخصائص.
 				$form.on('found_variation', function(e, variation){
 					if(!variation){ return; }
 					current = parseFloat(variation.display_price);
 					if(isNaN(current)){ current = parseFloat(variation.price) || 0; }
-					selectBtn(variation.attributes['attribute_' + cfg.attr]);
+					$.each(variation.attributes || {}, function(key, val){
+						markSelected(key.replace('attribute_',''), val);
+					});
 					render();
 				});
 
@@ -341,17 +539,25 @@ final class ThreeAbar_Weight_Pricing {
 					render();
 				});
 
-				// التشغيل الأولي مع تحديد الافتراضي أو أول وزن متاح.
+				// التشغيل الأولي: اختيار الافتراضي أو أول متاح لكل محدّد.
 				setTimeout(function(){
-					var slug = $form.find('select[name="attribute_' + cfg.attr + '"]').val();
-					if(!slug){ slug = $('.threeabar-weight-btn.selected').data('slug'); }
-					if(!slug){ slug = $('.threeabar-weight-btn:not(:disabled)').first().data('slug'); }
-					if(slug){
-						$('.threeabar-weight-btn[data-slug="'+ slug +'"]').not(':disabled').trigger('click');
-					} else {
-						render();
-					}
-				}, 600);
+					$('.threeabar-opt-group').each(function(){
+						var $g     = $(this);
+						var attr   = $g.data('attr');
+						var $select = $form.find('select[name="attribute_' + attr + '"]');
+						var val    = $select.val();
+						if(!val){
+							var $btn = $g.find('.threeabar-opt-btn.selected:not(:disabled)').first();
+							if(!$btn.length){ $btn = $g.find('.threeabar-opt-btn:not(:disabled)').first(); }
+							val = $btn.length ? $btn.data('slug') : '';
+							if(val){ $select.val(val); }
+						}
+						if(val){ markSelected(attr, val); }
+					});
+					$form.find('.variations select').trigger('change');
+					$form.trigger('check_variations');
+					render();
+				}, 500);
 
 				render();
 			});
@@ -365,7 +571,7 @@ final class ThreeAbar_Weight_Pricing {
 	 * ===================================================================== */
 
 	/**
-	 * إدراج الوزن المختار ضمن هاش كاش الأسعار.
+	 * إدراج الخيارات المختارة ضمن هاش كاش الأسعار.
 	 *
 	 * @param array      $hash       الهاش.
 	 * @param WC_Product $product    المنتج.
@@ -373,12 +579,14 @@ final class ThreeAbar_Weight_Pricing {
 	 * @return array
 	 */
 	public function price_hash( $hash, $product, $for_display ) {
-		$key       = 'attribute_' . self::ATTR;
-		$selected  = '';
-		if ( isset( $_REQUEST[ $key ] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-			$selected = sanitize_text_field( wp_unslash( $_REQUEST[ $key ] ) );
+		$s    = $this->get_settings();
+		$keys = array( 'attribute_' . $s['weight_taxonomy'] );
+		if ( ! empty( $s['color_enabled'] ) ) {
+			$keys[] = 'attribute_' . $s['color_taxonomy'];
 		}
-		$hash[] = $selected;
+		foreach ( $keys as $key ) {
+			$hash[] = isset( $_REQUEST[ $key ] ) ? sanitize_text_field( wp_unslash( $_REQUEST[ $key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		}
 		return $hash;
 	}
 
@@ -387,7 +595,7 @@ final class ThreeAbar_Weight_Pricing {
 	 * ===================================================================== */
 
 	/**
-	 * الحصول على المنتج الحالي بأمان.
+	 * المنتج الحالي بأمان.
 	 *
 	 * @return WC_Product|null
 	 */
@@ -401,66 +609,84 @@ final class ThreeAbar_Weight_Pricing {
 	}
 
 	/**
-	 * هل المنتج متغيّر ويستخدم خاصية الوزن؟
+	 * هل المنتج متغيّر ويستخدم خاصية مستهدفة (وزن أو لون مفعّل)؟
 	 *
 	 * @param WC_Product|null $product المنتج.
 	 * @return bool
 	 */
-	private function is_weight_variable( $product ) {
+	private function product_is_target( $product ) {
 		if ( ! $product instanceof WC_Product || ! $product->is_type( 'variable' ) ) {
 			return false;
 		}
-		$attributes = $product->get_variation_attributes();
-		return is_array( $attributes ) && array_key_exists( self::ATTR, $attributes );
+		return ! empty( $this->get_selector_attributes( $product ) );
 	}
 
 	/**
-	 * بناء خريطة slug ⇒ متغيّر مرئي (تمنع التكرار وتُستخدم للأسعار والمخزون).
+	 * قائمة الخصائص التي سنعرض لها محدّدات (حسب الإعدادات وما يستخدمه المنتج فعليًا).
 	 *
 	 * @param WC_Product $product المنتج.
 	 * @return array
 	 */
-	private function get_weight_variation_map( $product ) {
-		$map = array();
-		foreach ( $product->get_children() as $variation_id ) {
-			$variation = wc_get_product( $variation_id );
-			if ( ! $variation || ! $variation->is_visible() ) {
-				continue;
-			}
-			$slug = $variation->get_attribute( self::ATTR );
-			if ( '' !== $slug && ! isset( $map[ $slug ] ) ) {
-				$map[ $slug ] = $variation;
+	private function get_selector_attributes( $product ) {
+		$s    = $this->get_settings();
+		$used = array_keys( (array) $product->get_variation_attributes() );
+		$list = array();
+
+		$weight_tax = $s['weight_taxonomy'];
+		if ( $weight_tax && in_array( $weight_tax, $used, true ) ) {
+			$list[] = array(
+				'taxonomy' => $weight_tax,
+				'label'    => $s['weight_label'],
+				'is_color' => false,
+			);
+		}
+
+		if ( ! empty( $s['color_enabled'] ) ) {
+			$color_tax = $s['color_taxonomy'];
+			if ( $color_tax && in_array( $color_tax, $used, true ) ) {
+				$list[] = array(
+					'taxonomy' => $color_tax,
+					'label'    => $s['color_label'],
+					'is_color' => true,
+				);
 			}
 		}
-		return $map;
+
+		return $list;
 	}
 
 	/**
-	 * الوزن الافتراضي (slug) إن وُجد.
+	 * الوزن/الخيار الافتراضي (slug) لخاصية معيّنة.
 	 *
-	 * @param WC_Product $product المنتج.
+	 * @param WC_Product $product  المنتج.
+	 * @param string     $taxonomy الخاصية.
 	 * @return string
 	 */
-	private function get_default_slug( $product ) {
+	private function get_default_slug( $product, $taxonomy ) {
 		$defaults = $product->get_default_attributes();
-		return ! empty( $defaults[ self::ATTR ] ) ? $defaults[ self::ATTR ] : '';
+		return ! empty( $defaults[ $taxonomy ] ) ? $defaults[ $taxonomy ] : '';
 	}
 
 	/**
-	 * السعر الابتدائي: سعر الوزن الافتراضي إن وُجد، وإلا السعر الأدنى للعرض.
+	 * استخراج قيمة اللون من ميتا المصطلح أو من الـ slug إن كان لونًا صالحًا.
 	 *
-	 * @param WC_Product $product المنتج.
-	 * @return float
+	 * @param WP_Term|false $term المصطلح.
+	 * @param string        $slug الـ slug.
+	 * @return string
 	 */
-	private function get_initial_price( $product ) {
-		$slug = $this->get_default_slug( $product );
-		if ( $slug ) {
-			$map = $this->get_weight_variation_map( $product );
-			if ( isset( $map[ $slug ] ) ) {
-				return (float) wc_get_price_to_display( $map[ $slug ] );
+	private function get_color_value( $term, $slug ) {
+		if ( $term && ! is_wp_error( $term ) ) {
+			foreach ( array( 'product_attribute_color', 'color', 'pa_color_color', 'swatch_color' ) as $meta_key ) {
+				$value = get_term_meta( $term->term_id, $meta_key, true );
+				if ( $value ) {
+					return $value;
+				}
 			}
 		}
-		return (float) $product->get_variation_price( 'min', true );
+		if ( preg_match( '/^#?[0-9a-fA-F]{6}$/', $slug ) || preg_match( '/^#?[0-9a-fA-F]{3}$/', $slug ) ) {
+			return '#' . ltrim( $slug, '#' );
+		}
+		return '';
 	}
 }
 
