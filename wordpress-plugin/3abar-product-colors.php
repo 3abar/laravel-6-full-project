@@ -2,8 +2,8 @@
 /**
  * Plugin Name: 3abar Product Colors
  * Plugin URI:  https://3abar.com
- * Description: نظام ألوان مخصّص لمنتجات WooCommerce — عرّف ألوانك العامة من الإعدادات (درجة لون أو صورة) مع سعر إضافي اختياري لكل لون، ثم اختر الألوان المتاحة لكل منتج من لوحة المنتج مع إمكانية تخصيص صورة/سعر لكل لون. يعمل مع المنتج العادي، ومنتجات الوزن، ومع بلاجن الإضافات — ويُضيف سعر اللون تلقائيًا للسلة والطلب.
- * Version:     1.0.0
+ * Description: نظام ألوان مخصّص لمنتجات WooCommerce — عرّف ألوانك العامة من الإعدادات (درجة لون أو صورة) مع سعر إضافي ومعرض صور اختياري لكل لون، ثم اختر الألوان المتاحة لكل منتج مع إمكانية تخصيص الصورة/السعر/المعرض. عند اختيار لون له معرض خاص يتبدّل معرض المنتج تلقائيًا. يعمل مع المنتج العادي والوزن والإضافات، بستايل سلة موحّد ومتجاوب مع الموبايل.
+ * Version:     1.1.0
  * Author:      Shawky El Moazamy
  * Author URI:  https://3abar.com
  * Text Domain: 3abar-product-colors
@@ -39,7 +39,7 @@ final class ThreeAbar_Product_Colors {
 	private static $instance = null;
 
 	/**
-	 * منع تكرار طباعة محدّد الألوان في نفس الصفحة.
+	 * منع تكرار طباعة المحدّد.
 	 *
 	 * @var bool
 	 */
@@ -94,6 +94,11 @@ final class ThreeAbar_Product_Colors {
 		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_color_price' ), 25, 1 );
 		add_filter( 'woocommerce_get_item_data', array( $this, 'display_cart_item_data' ), 10, 2 );
 		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_item_meta' ), 10, 4 );
+
+		// ستايل السلة الموحّد لصفوف الخيارات (وزن/لون).
+		add_filter( 'woocommerce_cart_item_class', array( $this, 'cart_item_class' ), 10, 3 );
+		add_filter( 'woocommerce_cart_item_name', array( $this, 'cart_item_name_badge' ), 20, 3 );
+		add_action( 'wp_enqueue_scripts', array( $this, 'cart_assets' ) );
 	}
 
 	/* =====================================================================
@@ -130,12 +135,13 @@ final class ThreeAbar_Product_Colors {
 			$map[ $color['id'] ] = wp_parse_args(
 				$color,
 				array(
-					'id'    => '',
-					'name'  => '',
-					'type'  => 'shade',
-					'color' => '#000000',
-					'image' => 0,
-					'price' => 0,
+					'id'      => '',
+					'name'    => '',
+					'type'    => 'shade',
+					'color'   => '#000000',
+					'image'   => 0,
+					'gallery' => '',
+					'price'   => 0,
 				)
 			);
 		}
@@ -191,18 +197,19 @@ final class ThreeAbar_Product_Colors {
 		foreach ( $rows as $row ) {
 			$name = sanitize_text_field( $row['name'] ?? '' );
 			if ( '' === $name ) {
-				continue; // تجاهل الصفوف الفارغة.
+				continue;
 			}
 			$id   = ! empty( $row['id'] ) ? sanitize_key( $row['id'] ) : 'c' . uniqid();
 			$type = ( isset( $row['type'] ) && 'image' === $row['type'] ) ? 'image' : 'shade';
 
 			$output['colors'][] = array(
-				'id'    => $id,
-				'name'  => $name,
-				'type'  => $type,
-				'color' => sanitize_hex_color( $row['color'] ?? '' ) ? sanitize_hex_color( $row['color'] ) : '#000000',
-				'image' => absint( $row['image'] ?? 0 ),
-				'price' => wc_format_decimal( $row['price'] ?? 0 ),
+				'id'      => $id,
+				'name'    => $name,
+				'type'    => $type,
+				'color'   => sanitize_hex_color( $row['color'] ?? '' ) ? sanitize_hex_color( $row['color'] ) : '#000000',
+				'image'   => absint( $row['image'] ?? 0 ),
+				'gallery' => $this->sanitize_ids( $row['gallery'] ?? '' ),
+				'price'   => wc_format_decimal( $row['price'] ?? 0 ),
 			);
 		}
 		return $output;
@@ -222,7 +229,7 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/**
-	 * عرض صفحة الإعدادات (جدول ألوان قابل للتكرار + رفع صور).
+	 * عرض صفحة الإعدادات.
 	 *
 	 * @return void
 	 */
@@ -237,31 +244,31 @@ final class ThreeAbar_Product_Colors {
 				<table class="form-table" role="presentation">
 					<tr>
 						<th scope="row"><label for="tc_label"><?php esc_html_e( 'المسمّى الافتراضي', '3abar-product-colors' ); ?></label></th>
-						<td><input type="text" id="tc_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[label]" value="<?php echo esc_attr( $settings['label'] ); ?>" />
-						<p class="description"><?php esc_html_e( 'يمكن تجاوزه لكل منتج من لوحة المنتج.', '3abar-product-colors' ); ?></p></td>
+						<td><input type="text" id="tc_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[label]" value="<?php echo esc_attr( $settings['label'] ); ?>" /></td>
 					</tr>
 				</table>
 
 				<h2><?php esc_html_e( 'الألوان العامة', '3abar-product-colors' ); ?></h2>
-				<p class="description"><?php esc_html_e( 'عرّف الألوان مرة واحدة هنا (درجة لون أو صورة + سعر إضافي اختياري)، ثم فعّلها لكل منتج.', '3abar-product-colors' ); ?></p>
+				<p class="description"><?php esc_html_e( 'عرّف الألوان مرة واحدة (درجة/صورة + سعر إضافي + معرض صور اختياري)، ثم فعّلها لكل منتج.', '3abar-product-colors' ); ?></p>
 
-				<table class="widefat threeabar-colors-table" style="max-width:980px;margin-top:10px">
+				<table class="widefat threeabar-colors-table" style="max-width:1100px;margin-top:10px">
 					<thead>
 						<tr>
-							<th style="width:60px"><?php esc_html_e( 'معاينة', '3abar-product-colors' ); ?></th>
+							<th style="width:54px"><?php esc_html_e( 'معاينة', '3abar-product-colors' ); ?></th>
 							<th><?php esc_html_e( 'الاسم', '3abar-product-colors' ); ?></th>
-							<th style="width:120px"><?php esc_html_e( 'النوع', '3abar-product-colors' ); ?></th>
-							<th style="width:90px"><?php esc_html_e( 'درجة اللون', '3abar-product-colors' ); ?></th>
-							<th style="width:160px"><?php esc_html_e( 'الصورة', '3abar-product-colors' ); ?></th>
-							<th style="width:120px"><?php esc_html_e( 'سعر إضافي', '3abar-product-colors' ); ?></th>
-							<th style="width:50px"></th>
+							<th style="width:110px"><?php esc_html_e( 'النوع', '3abar-product-colors' ); ?></th>
+							<th style="width:70px"><?php esc_html_e( 'الدرجة', '3abar-product-colors' ); ?></th>
+							<th style="width:140px"><?php esc_html_e( 'صورة العيّنة', '3abar-product-colors' ); ?></th>
+							<th style="width:230px"><?php esc_html_e( 'معرض اللون', '3abar-product-colors' ); ?></th>
+							<th style="width:90px"><?php esc_html_e( 'سعر إضافي', '3abar-product-colors' ); ?></th>
+							<th style="width:40px"></th>
 						</tr>
 					</thead>
 					<tbody id="threeabar-colors-rows">
 						<?php
 						$rows = $settings['colors'];
 						if ( empty( $rows ) ) {
-							$rows = array( array() ); // صف فارغ افتراضي.
+							$rows = array( array() );
 						}
 						foreach ( $rows as $index => $row ) {
 							$this->render_settings_row( $index, $row );
@@ -282,52 +289,84 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/**
-	 * عرض صفّ لون واحد في الإعدادات.
+	 * صفّ لون في الإعدادات.
 	 *
 	 * @param int|string $index الفهرس.
-	 * @param array      $row   بيانات اللون.
+	 * @param array      $row   البيانات.
 	 * @return void
 	 */
 	private function render_settings_row( $index, $row ) {
-		$row   = wp_parse_args(
+		$row     = wp_parse_args(
 			$row,
 			array(
-				'id'    => '',
-				'name'  => '',
-				'type'  => 'shade',
-				'color' => '#e0a73c',
-				'image' => 0,
-				'price' => '',
+				'id'      => '',
+				'name'    => '',
+				'type'    => 'shade',
+				'color'   => '#e0a73c',
+				'image'   => 0,
+				'gallery' => '',
+				'price'   => '',
 			)
 		);
-		$name  = esc_attr( self::OPTION ) . '[colors][' . esc_attr( $index ) . ']';
+		$name    = esc_attr( self::OPTION ) . '[colors][' . esc_attr( $index ) . ']';
 		$img_url = $row['image'] ? wp_get_attachment_image_url( $row['image'], 'thumbnail' ) : '';
 		?>
 		<tr class="threeabar-color-row">
 			<td class="threeabar-prev-cell">
 				<?php if ( $img_url ) : ?>
-					<img class="threeabar-prev-img" src="<?php echo esc_url( $img_url ); ?>" style="width:38px;height:38px;border-radius:8px;object-fit:cover" />
+					<img class="threeabar-prev-img" src="<?php echo esc_url( $img_url ); ?>" style="width:36px;height:36px;border-radius:8px;object-fit:cover" />
 				<?php else : ?>
-					<span class="threeabar-prev-dot" style="display:inline-block;width:32px;height:32px;border-radius:50%;border:1px solid #ccc;background:<?php echo esc_attr( $row['color'] ); ?>"></span>
+					<span class="threeabar-prev-dot" style="display:inline-block;width:30px;height:30px;border-radius:50%;border:1px solid #ccc;background:<?php echo esc_attr( $row['color'] ); ?>"></span>
 				<?php endif; ?>
 			</td>
 			<td><input type="text" name="<?php echo $name; // phpcs:ignore ?>[name]" value="<?php echo esc_attr( $row['name'] ); ?>" class="regular-text" /></td>
 			<td>
 				<input type="hidden" name="<?php echo $name; // phpcs:ignore ?>[id]" value="<?php echo esc_attr( $row['id'] ); ?>" />
-				<select name="<?php echo $name; // phpcs:ignore ?>[type]" class="threeabar-type-select">
-					<option value="shade" <?php selected( $row['type'], 'shade' ); ?>><?php esc_html_e( 'درجة لون', '3abar-product-colors' ); ?></option>
+				<select name="<?php echo $name; // phpcs:ignore ?>[type]">
+					<option value="shade" <?php selected( $row['type'], 'shade' ); ?>><?php esc_html_e( 'درجة', '3abar-product-colors' ); ?></option>
 					<option value="image" <?php selected( $row['type'], 'image' ); ?>><?php esc_html_e( 'صورة', '3abar-product-colors' ); ?></option>
 				</select>
 			</td>
 			<td><input type="color" name="<?php echo $name; // phpcs:ignore ?>[color]" value="<?php echo esc_attr( $row['color'] ? $row['color'] : '#e0a73c' ); ?>" /></td>
 			<td class="threeabar-img-cell">
 				<input type="hidden" class="threeabar-img-id" name="<?php echo $name; // phpcs:ignore ?>[image]" value="<?php echo esc_attr( $row['image'] ); ?>" />
-				<button type="button" class="button threeabar-upload-img"><?php esc_html_e( 'اختر صورة', '3abar-product-colors' ); ?></button>
+				<button type="button" class="button threeabar-upload-img"><?php esc_html_e( 'صورة', '3abar-product-colors' ); ?></button>
 				<button type="button" class="button-link threeabar-remove-img" style="<?php echo $row['image'] ? '' : 'display:none'; ?>"><?php esc_html_e( 'حذف', '3abar-product-colors' ); ?></button>
 			</td>
-			<td><input type="number" step="0.01" min="0" name="<?php echo $name; // phpcs:ignore ?>[price]" value="<?php echo esc_attr( $row['price'] ); ?>" style="width:90px" placeholder="0" /></td>
+			<td><?php $this->render_gallery_field( $name . '[gallery]', $row['gallery'] ); ?></td>
+			<td><input type="number" step="0.01" min="0" name="<?php echo $name; // phpcs:ignore ?>[price]" value="<?php echo esc_attr( $row['price'] ); ?>" style="width:80px" placeholder="0" /></td>
 			<td><button type="button" class="button-link threeabar-remove-row" style="color:#b32d2e">&times;</button></td>
 		</tr>
+		<?php
+	}
+
+	/**
+	 * عنصر معرض صور (قابل للاستخدام في الإعدادات ولوحة المنتج).
+	 *
+	 * @param string $field_name اسم الحقل.
+	 * @param string $ids_csv    المعرّفات مفصولة بفواصل.
+	 * @return void
+	 */
+	private function render_gallery_field( $field_name, $ids_csv ) {
+		$ids = array_filter( array_map( 'absint', explode( ',', (string) $ids_csv ) ) );
+		?>
+		<div class="threeabar-gallery-field">
+			<input type="hidden" class="threeabar-gallery-ids" name="<?php echo esc_attr( $field_name ); ?>" value="<?php echo esc_attr( implode( ',', $ids ) ); ?>" />
+			<ul class="threeabar-gallery-prev" style="display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px;padding:0;list-style:none">
+				<?php foreach ( $ids as $id ) :
+					$u = wp_get_attachment_image_url( $id, 'thumbnail' );
+					if ( ! $u ) {
+						continue;
+					}
+					?>
+					<li data-id="<?php echo esc_attr( $id ); ?>" style="position:relative">
+						<img src="<?php echo esc_url( $u ); ?>" style="width:40px;height:40px;border-radius:6px;object-fit:cover;display:block" />
+						<button type="button" class="threeabar-gallery-remove" style="position:absolute;top:-6px;inset-inline-end:-6px;background:#b32d2e;color:#fff;border:none;border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer">&times;</button>
+					</li>
+				<?php endforeach; ?>
+			</ul>
+			<button type="button" class="button button-small threeabar-gallery-add">+ <?php esc_html_e( 'صور المعرض', '3abar-product-colors' ); ?></button>
+		</div>
 		<?php
 	}
 
@@ -367,42 +406,38 @@ final class ThreeAbar_Product_Colors {
 		$globals   = $this->get_global_colors();
 		?>
 		<div class="threeabar-colors-mb">
-			<p>
-				<label><input type="checkbox" name="<?php echo esc_attr( self::META_ENABLED ); ?>" value="yes" <?php checked( $enabled ); ?> /> <strong><?php esc_html_e( 'تفعيل اختيار اللون لهذا المنتج', '3abar-product-colors' ); ?></strong></label>
-			</p>
-			<p>
-				<label><input type="checkbox" name="<?php echo esc_attr( self::META_REQUIRED ); ?>" value="yes" <?php checked( $required ); ?> /> <?php esc_html_e( 'اختيار اللون إجباري', '3abar-product-colors' ); ?></label>
-			</p>
-			<p>
-				<label><?php esc_html_e( 'مسمّى مخصّص (اختياري):', '3abar-product-colors' ); ?>
-					<input type="text" name="<?php echo esc_attr( self::META_LABEL ); ?>" value="<?php echo esc_attr( $label ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $this->get_settings()['label'] ); ?>" />
-				</label>
-			</p>
+			<p><label><input type="checkbox" name="<?php echo esc_attr( self::META_ENABLED ); ?>" value="yes" <?php checked( $enabled ); ?> /> <strong><?php esc_html_e( 'تفعيل اختيار اللون لهذا المنتج', '3abar-product-colors' ); ?></strong></label></p>
+			<p><label><input type="checkbox" name="<?php echo esc_attr( self::META_REQUIRED ); ?>" value="yes" <?php checked( $required ); ?> /> <?php esc_html_e( 'اختيار اللون إجباري', '3abar-product-colors' ); ?></label></p>
+			<p><label><?php esc_html_e( 'مسمّى مخصّص (اختياري):', '3abar-product-colors' ); ?>
+				<input type="text" name="<?php echo esc_attr( self::META_LABEL ); ?>" value="<?php echo esc_attr( $label ); ?>" class="regular-text" placeholder="<?php echo esc_attr( $this->get_settings()['label'] ); ?>" />
+			</label></p>
 
 			<?php if ( empty( $globals ) ) : ?>
 				<p style="color:#b32d2e">
 					<?php
 					printf(
 						/* translators: %s settings url */
-						wp_kses_post( __( 'لا توجد ألوان مُعرّفة بعد. أضِف ألوانك من <a href="%s">إعدادات الألوان</a>.', '3abar-product-colors' ) ),
+						wp_kses_post( __( 'لا توجد ألوان مُعرّفة. أضِفها من <a href="%s">إعدادات الألوان</a>.', '3abar-product-colors' ) ),
 						esc_url( admin_url( 'admin.php?page=threeabar-product-colors' ) )
 					);
 					?>
 				</p>
 			<?php else : ?>
-				<p class="description"><?php esc_html_e( 'اختر الألوان المتاحة لهذا المنتج، ويمكنك تخصيص سعر أو صورة لكل لون (اتركها فارغة لاستخدام الافتراضي).', '3abar-product-colors' ); ?></p>
-				<table class="widefat" style="max-width:760px">
+				<p class="description"><?php esc_html_e( 'اختر الألوان المتاحة، ويمكنك تخصيص سعر/صورة/معرض لكل لون (اتركها فارغة لاستخدام الافتراضي العام).', '3abar-product-colors' ); ?></p>
+				<table class="widefat" style="max-width:900px">
 					<thead><tr>
 						<th style="width:40px"></th>
 						<th><?php esc_html_e( 'اللون', '3abar-product-colors' ); ?></th>
-						<th style="width:130px"><?php esc_html_e( 'سعر مخصّص', '3abar-product-colors' ); ?></th>
-						<th style="width:200px"><?php esc_html_e( 'صورة مخصّصة', '3abar-product-colors' ); ?></th>
+						<th style="width:110px"><?php esc_html_e( 'سعر مخصّص', '3abar-product-colors' ); ?></th>
+						<th style="width:160px"><?php esc_html_e( 'صورة مخصّصة', '3abar-product-colors' ); ?></th>
+						<th style="width:240px"><?php esc_html_e( 'معرض مخصّص', '3abar-product-colors' ); ?></th>
 					</tr></thead>
 					<tbody>
 					<?php foreach ( $globals as $id => $color ) :
 						$is_on    = array_key_exists( $id, $overrides );
 						$ov_price = $is_on && isset( $overrides[ $id ]['price'] ) ? $overrides[ $id ]['price'] : '';
 						$ov_image = $is_on && ! empty( $overrides[ $id ]['image'] ) ? absint( $overrides[ $id ]['image'] ) : 0;
+						$ov_gal   = $is_on && isset( $overrides[ $id ]['gallery'] ) ? $overrides[ $id ]['gallery'] : '';
 						$ov_url   = $ov_image ? wp_get_attachment_image_url( $ov_image, 'thumbnail' ) : '';
 						$base     = 'image' === $color['type'] && $color['image'] ? wp_get_attachment_image_url( $color['image'], 'thumbnail' ) : '';
 						$mb_name  = esc_attr( self::META_COLORS ) . '[' . esc_attr( $id ) . ']';
@@ -411,22 +446,23 @@ final class ThreeAbar_Product_Colors {
 							<td><input type="checkbox" name="<?php echo $mb_name; // phpcs:ignore ?>[on]" value="1" <?php checked( $is_on ); ?> /></td>
 							<td>
 								<?php if ( $base ) : ?>
-									<img src="<?php echo esc_url( $base ); ?>" style="width:26px;height:26px;border-radius:6px;object-fit:cover;vertical-align:middle;margin-inline-end:8px" />
+									<img src="<?php echo esc_url( $base ); ?>" style="width:24px;height:24px;border-radius:6px;object-fit:cover;vertical-align:middle;margin-inline-end:8px" />
 								<?php else : ?>
-									<span style="display:inline-block;width:22px;height:22px;border-radius:50%;border:1px solid #ccc;background:<?php echo esc_attr( $color['color'] ); ?>;vertical-align:middle;margin-inline-end:8px"></span>
+									<span style="display:inline-block;width:20px;height:20px;border-radius:50%;border:1px solid #ccc;background:<?php echo esc_attr( $color['color'] ); ?>;vertical-align:middle;margin-inline-end:8px"></span>
 								<?php endif; ?>
 								<?php echo esc_html( $color['name'] ); ?>
 								<?php if ( (float) $color['price'] > 0 ) : ?>
 									<small style="color:#777">(+<?php echo esc_html( wp_strip_all_tags( wc_price( $color['price'] ) ) ); ?>)</small>
 								<?php endif; ?>
 							</td>
-							<td><input type="number" step="0.01" min="0" name="<?php echo $mb_name; // phpcs:ignore ?>[price]" value="<?php echo esc_attr( $ov_price ); ?>" placeholder="<?php echo esc_attr( $color['price'] ); ?>" style="width:110px" /></td>
+							<td><input type="number" step="0.01" min="0" name="<?php echo $mb_name; // phpcs:ignore ?>[price]" value="<?php echo esc_attr( $ov_price ); ?>" placeholder="<?php echo esc_attr( $color['price'] ); ?>" style="width:100px" /></td>
 							<td class="threeabar-img-cell">
 								<input type="hidden" class="threeabar-img-id" name="<?php echo $mb_name; // phpcs:ignore ?>[image]" value="<?php echo esc_attr( $ov_image ); ?>" />
-								<span class="threeabar-img-prev"><?php echo $ov_url ? '<img src="' . esc_url( $ov_url ) . '" style="width:26px;height:26px;border-radius:6px;object-fit:cover;vertical-align:middle" />' : ''; ?></span>
+								<span class="threeabar-img-prev"><?php echo $ov_url ? '<img src="' . esc_url( $ov_url ) . '" style="width:24px;height:24px;border-radius:6px;object-fit:cover;vertical-align:middle" />' : ''; ?></span>
 								<button type="button" class="button threeabar-upload-img"><?php esc_html_e( 'صورة', '3abar-product-colors' ); ?></button>
 								<button type="button" class="button-link threeabar-remove-img" style="<?php echo $ov_image ? '' : 'display:none'; ?>"><?php esc_html_e( 'حذف', '3abar-product-colors' ); ?></button>
 							</td>
+							<td><?php $this->render_gallery_field( $mb_name . '[gallery]', $ov_gal ); ?></td>
 						</tr>
 					<?php endforeach; ?>
 					</tbody>
@@ -439,7 +475,7 @@ final class ThreeAbar_Product_Colors {
 	/**
 	 * حفظ بيانات الميتا بوكس.
 	 *
-	 * @param int $post_id معرّف المنتج.
+	 * @param int $post_id المنتج.
 	 * @return void
 	 */
 	public function save_meta_box( $post_id ) {
@@ -463,24 +499,25 @@ final class ThreeAbar_Product_Colors {
 		foreach ( $raw as $id => $data ) {
 			$id = sanitize_key( $id );
 			if ( ! isset( $globals[ $id ] ) || empty( $data['on'] ) ) {
-				continue; // لا نحفظ إلا الألوان المُفعّلة والمعروفة.
+				continue;
 			}
 			$clean[ $id ] = array(
-				'price' => ( isset( $data['price'] ) && '' !== $data['price'] ) ? wc_format_decimal( $data['price'] ) : '',
-				'image' => isset( $data['image'] ) ? absint( $data['image'] ) : 0,
+				'price'   => ( isset( $data['price'] ) && '' !== $data['price'] ) ? wc_format_decimal( $data['price'] ) : '',
+				'image'   => isset( $data['image'] ) ? absint( $data['image'] ) : 0,
+				'gallery' => $this->sanitize_ids( $data['gallery'] ?? '' ),
 			);
 		}
 		update_post_meta( $post_id, self::META_COLORS, $clean );
 	}
 
 	/**
-	 * أصول لوحة التحكم (مكتبة الوسائط + سكربت الرفع والصفوف).
+	 * أصول لوحة التحكم.
 	 *
 	 * @param string $hook الصفحة.
 	 * @return void
 	 */
 	public function admin_assets( $hook ) {
-		$screen = get_current_screen();
+		$screen          = get_current_screen();
 		$is_product_edit = $screen && 'product' === $screen->post_type;
 		$is_settings     = isset( $_GET['page'] ) && 'threeabar-product-colors' === $_GET['page']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if ( ! $is_product_edit && ! $is_settings ) {
@@ -500,27 +537,23 @@ final class ThreeAbar_Product_Colors {
 		?>
 		(function($){
 			$(function(){
-				// رفع الصور (يعمل في الإعدادات وفي لوحة المنتج).
+				// رفع صورة مفردة.
 				$(document).on('click', '.threeabar-upload-img', function(e){
 					e.preventDefault();
-					var $btn = $(this);
-					var $cell = $btn.closest('.threeabar-img-cell, td');
+					var $btn = $(this), $cell = $btn.closest('.threeabar-img-cell, td');
 					var frame = wp.media({ title:'اختر صورة', multiple:false, library:{type:'image'} });
 					frame.on('select', function(){
 						var att = frame.state().get('selection').first().toJSON();
 						var url = (att.sizes && att.sizes.thumbnail) ? att.sizes.thumbnail.url : att.url;
 						$cell.find('.threeabar-img-id').val(att.id);
 						if($cell.find('.threeabar-img-prev').length){
-							$cell.find('.threeabar-img-prev').html('<img src="'+url+'" style="width:26px;height:26px;border-radius:6px;object-fit:cover;vertical-align:middle" />');
+							$cell.find('.threeabar-img-prev').html('<img src="'+url+'" style="width:24px;height:24px;border-radius:6px;object-fit:cover;vertical-align:middle" />');
 						}
-						// معاينة في صفحة الإعدادات.
-						var $row = $btn.closest('tr');
-						$row.find('.threeabar-prev-cell').html('<img class="threeabar-prev-img" src="'+url+'" style="width:38px;height:38px;border-radius:8px;object-fit:cover" />');
+						$btn.closest('tr').find('.threeabar-prev-cell').html('<img class="threeabar-prev-img" src="'+url+'" style="width:36px;height:36px;border-radius:8px;object-fit:cover" />');
 						$cell.find('.threeabar-remove-img').show();
 					});
 					frame.open();
 				});
-
 				$(document).on('click', '.threeabar-remove-img', function(e){
 					e.preventDefault();
 					var $cell = $(this).closest('.threeabar-img-cell, td');
@@ -529,17 +562,44 @@ final class ThreeAbar_Product_Colors {
 					$(this).hide();
 				});
 
-				// إضافة صف لون في الإعدادات.
-				$('#threeabar-add-color').on('click', function(){
-					var tpl = $('#threeabar-color-row-tpl').html();
-					var idx = 'n' + Date.now();
-					$('#threeabar-colors-rows').append(tpl.replace(/__INDEX__/g, idx));
+				// معرض صور متعدّد.
+				function rebuildIds($field){
+					var ids = [];
+					$field.find('.threeabar-gallery-prev li').each(function(){ ids.push($(this).data('id')); });
+					$field.find('.threeabar-gallery-ids').val(ids.join(','));
+				}
+				$(document).on('click', '.threeabar-gallery-add', function(e){
+					e.preventDefault();
+					var $field = $(this).closest('.threeabar-gallery-field');
+					var frame = wp.media({ title:'اختر صور المعرض', multiple:true, library:{type:'image'} });
+					frame.on('select', function(){
+						frame.state().get('selection').each(function(att){
+							att = att.toJSON();
+							var url = (att.sizes && att.sizes.thumbnail) ? att.sizes.thumbnail.url : att.url;
+							$field.find('.threeabar-gallery-prev').append(
+								'<li data-id="'+att.id+'" style="position:relative">'+
+								'<img src="'+url+'" style="width:40px;height:40px;border-radius:6px;object-fit:cover;display:block" />'+
+								'<button type="button" class="threeabar-gallery-remove" style="position:absolute;top:-6px;inset-inline-end:-6px;background:#b32d2e;color:#fff;border:none;border-radius:50%;width:18px;height:18px;line-height:1;cursor:pointer">&times;</button>'+
+								'</li>'
+							);
+						});
+						rebuildIds($field);
+					});
+					frame.open();
+				});
+				$(document).on('click', '.threeabar-gallery-remove', function(e){
+					e.preventDefault();
+					var $field = $(this).closest('.threeabar-gallery-field');
+					$(this).closest('li').remove();
+					rebuildIds($field);
 				});
 
-				// حذف صف.
-				$(document).on('click', '.threeabar-remove-row', function(){
-					$(this).closest('tr').remove();
+				// صفوف الإعدادات.
+				$('#threeabar-add-color').on('click', function(){
+					var tpl = $('#threeabar-color-row-tpl').html();
+					$('#threeabar-colors-rows').append(tpl.replace(/__INDEX__/g, 'n'+Date.now()));
 				});
+				$(document).on('click', '.threeabar-remove-row', function(){ $(this).closest('tr').remove(); });
 			});
 		})(jQuery);
 		<?php
@@ -551,13 +611,13 @@ final class ThreeAbar_Product_Colors {
 	 * ===================================================================== */
 
 	/**
-	 * عرض محدّد الألوان داخل نموذج الإضافة للسلة.
+	 * عرض محدّد الألوان.
 	 *
 	 * @return void
 	 */
 	public function render_color_selector() {
 		if ( $this->selector_rendered ) {
-			return; // طُبع مسبقًا (مثلًا استدعاه بلاجن الإضافات).
+			return;
 		}
 		global $product;
 		if ( ! $product instanceof WC_Product ) {
@@ -568,6 +628,7 @@ final class ThreeAbar_Product_Colors {
 			return;
 		}
 		$this->selector_rendered = true;
+
 		$label    = get_post_meta( $product->get_id(), self::META_LABEL, true );
 		$label    = $label ? $label : $this->get_settings()['label'];
 		$required = 'yes' === get_post_meta( $product->get_id(), self::META_REQUIRED, true );
@@ -577,12 +638,14 @@ final class ThreeAbar_Product_Colors {
 			<input type="hidden" name="<?php echo esc_attr( self::CART_KEY ); ?>" class="threeabar-color-input" value="" />
 			<div class="threeabar-colors-options">
 				<?php foreach ( $colors as $color ) :
-					$img = ( 'image' === $color['type'] && $color['image'] ) ? wp_get_attachment_image_url( $color['image'], 'woocommerce_thumbnail' ) : '';
-					$fee = (float) $color['price'];
+					$img     = ( 'image' === $color['type'] && $color['image'] ) ? wp_get_attachment_image_url( $color['image'], 'woocommerce_thumbnail' ) : '';
+					$fee     = (float) $color['price'];
+					$gallery = $this->build_gallery_payload( $color['gallery'] );
 					?>
 					<button type="button" class="threeabar-color-btn<?php echo $img ? ' has-img' : ''; ?>"
 							data-id="<?php echo esc_attr( $color['id'] ); ?>"
 							data-price="<?php echo esc_attr( $fee ); ?>"
+							data-gallery="<?php echo esc_attr( wp_json_encode( $gallery ) ); ?>"
 							title="<?php echo esc_attr( $color['name'] ); ?>">
 						<span class="threeabar-color-swatch" style="<?php echo $img ? "background-image:url('" . esc_url( $img ) . "')" : 'background:' . esc_attr( $color['color'] ); ?>"></span>
 						<span class="threeabar-color-name"><?php echo esc_html( $color['name'] ); ?></span>
@@ -595,7 +658,7 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/**
-	 * تحميل أصول الواجهة.
+	 * تحميل أصول الواجهة (صفحة المنتج).
 	 *
 	 * @return void
 	 */
@@ -608,14 +671,14 @@ final class ThreeAbar_Product_Colors {
 			return;
 		}
 		wp_enqueue_script( 'jquery' );
-		wp_register_style( '3abar-product-colors', false, array(), '1.0.0' );
+		wp_register_style( '3abar-product-colors', false, array(), '1.1.0' );
 		wp_enqueue_style( '3abar-product-colors' );
 		wp_add_inline_style( '3abar-product-colors', $this->frontend_css() );
 		wp_add_inline_script( 'jquery', $this->frontend_js(), 'after' );
 	}
 
 	/**
-	 * أنماط الواجهة.
+	 * أنماط الواجهة (مع الموبايل).
 	 *
 	 * @return string
 	 */
@@ -630,13 +693,24 @@ final class ThreeAbar_Product_Colors {
 		.threeabar-color-btn.selected{border-color:#a16e12;box-shadow:0 10px 22px -10px rgba(184,128,28,.6);background:linear-gradient(180deg,#fffaf0,#fdf3da)}
 		.threeabar-color-swatch{width:46px;height:46px;border-radius:50%;background-size:cover;background-position:center;border:2px solid rgba(0,0,0,.08);box-shadow:inset 0 0 0 2px #fff}
 		.threeabar-color-btn.selected .threeabar-color-swatch{box-shadow:inset 0 0 0 2px #fff,0 0 0 3px #e0a73c}
-		.threeabar-color-name{font-size:.9rem;font-weight:600;color:#3a2a0c}
+		.threeabar-color-name{font-size:.9rem;font-weight:700;color:#3a2a0c}
 		.threeabar-color-fee{font-size:.78rem;font-weight:700;color:#b97e16}
+
+		@media(max-width:768px){
+			.threeabar-colors-options{gap:9px}
+			.threeabar-color-btn{min-width:72px;padding:8px 10px;border-radius:12px;flex:1 1 calc(33.333% - 9px)}
+			.threeabar-color-swatch{width:40px;height:40px}
+			.threeabar-color-name{font-size:.82rem}
+			.threeabar-color-fee{font-size:.72rem}
+		}
+		@media(max-width:380px){
+			.threeabar-color-btn{flex:1 1 calc(50% - 9px)}
+		}
 		';
 	}
 
 	/**
-	 * سكربت الواجهة.
+	 * سكربت الواجهة (اختيار اللون + تبديل المعرض + تعطيل الزر).
 	 *
 	 * @return string
 	 */
@@ -662,18 +736,50 @@ final class ThreeAbar_Product_Colors {
 					}
 				}
 
+				// تبديل معرض المنتج إلى معرض اللون (والعودة للأصلي).
+				function swapGallery(images){
+					var $g = $('.woocommerce-product-gallery');
+					if(!$g.length){ return; }
+					var $wrapEl = $g.find('.woocommerce-product-gallery__wrapper');
+					if(!$wrapEl.length){ return; }
+					if($g.data('tbOrig') === undefined){ $g.data('tbOrig', $wrapEl.html()); }
+
+					if(!images || !images.length){
+						$wrapEl.html($g.data('tbOrig'));
+					} else {
+						var html = "";
+						images.forEach(function(im){
+							html += "<div class=\"woocommerce-product-gallery__image\"><a href=\""+im.full+"\"><img alt=\"\" src=\""+im.large+"\" data-src=\""+im.full+"\" data-large_image=\""+im.full+"\" class=\"wp-post-image\" /></a></div>";
+						});
+						$wrapEl.html(html);
+					}
+					reinitGallery($g);
+				}
+				function reinitGallery($g){
+					try{
+						if($.fn.wc_product_gallery){
+							$g.removeData("flexslider");
+							var $vp = $g.find(".flex-viewport");
+							if($vp.length){ $vp.children().unwrap(); $vp.remove(); }
+							$g.find(".flex-control-nav").remove();
+							$g.wc_product_gallery();
+						}
+					}catch(e){}
+				}
+
 				$(document).on('click', '.threeabar-color-btn', function(){
 					var $b = $(this);
 					$('.threeabar-color-btn').removeClass('selected');
 					$b.addClass('selected');
 					$input.val($b.data('id'));
 					window.ThreeAbarColorSurcharge = parseFloat($b.data('price')) || 0;
-					// إعلام بلاجن الوزن (وأي مستمع) لإعادة حساب السعر الحي.
 					$(document.body).trigger('threeabar_color_changed');
+					var gallery = $b.data('gallery');
+					if(typeof gallery === 'string'){ try{ gallery = JSON.parse(gallery); }catch(e){ gallery = []; } }
+					swapGallery(gallery || []);
 					refreshAddBtn();
 				});
 
-				// إعادة تطبيق التعطيل بعد أحداث المتغيّرات في WooCommerce.
 				$('form.variations_form').on('found_variation show_variation woocommerce_variation_has_changed', function(){
 					setTimeout(refreshAddBtn, 0);
 				});
@@ -690,7 +796,7 @@ final class ThreeAbar_Product_Colors {
 	 * ===================================================================== */
 
 	/**
-	 * منع الإضافة عند كون اللون إجباريًا وغير مُختار.
+	 * منع الإضافة عند اللون الإجباري غير المختار.
 	 *
 	 * @param bool $passed     النتيجة.
 	 * @param int  $product_id المنتج.
@@ -713,7 +819,7 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/**
-	 * تخزين اللون المختار في بيانات عنصر السلة.
+	 * تخزين اللون المختار في عنصر السلة.
 	 *
 	 * @param array $cart_item_data البيانات.
 	 * @param int   $product_id     المنتج.
@@ -722,7 +828,7 @@ final class ThreeAbar_Product_Colors {
 	 */
 	public function add_cart_item_data( $cart_item_data, $product_id, $variation_id ) {
 		if ( isset( $cart_item_data[ self::CART_KEY ] ) ) {
-			return $cart_item_data; // مُمرّر مسبقًا (مثلًا من بلاجن الإضافات).
+			return $cart_item_data;
 		}
 		$selected = isset( $_REQUEST[ self::CART_KEY ] ) ? sanitize_text_field( wp_unslash( $_REQUEST[ self::CART_KEY ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		if ( '' !== $selected ) {
@@ -732,7 +838,7 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/**
-	 * إضافة سعر اللون لسعر عنصر السلة.
+	 * إضافة سعر اللون.
 	 *
 	 * @param WC_Cart $cart السلة.
 	 * @return void
@@ -774,19 +880,16 @@ final class ThreeAbar_Product_Colors {
 		if ( ! $color ) {
 			return $item_data;
 		}
-		// عيّنة لون مصغّرة بجانب الاسم.
 		if ( 'image' === $color['type'] && $color['image'] ) {
 			$img    = wp_get_attachment_image_url( $color['image'], 'thumbnail' );
 			$swatch = '<img src="' . esc_url( $img ) . '" style="width:20px;height:20px;border-radius:50%;object-fit:cover;vertical-align:middle;display:inline-block;margin-inline-end:6px" />';
 		} else {
 			$swatch = '<span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:' . esc_attr( $color['color'] ) . ';border:1px solid rgba(0,0,0,.15);vertical-align:middle;margin-inline-end:6px"></span>';
 		}
-
 		$display = $swatch . '<strong style="color:#8a5a12">' . esc_html( $color['name'] ) . '</strong>';
 		if ( (float) $color['price'] > 0 ) {
-			$display .= ' <span style="background:#2c7a4d;color:#fff;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700">+' . wp_strip_all_tags( wc_price( $color['price'] ) ) . '</span>';
+			$display .= ' <span style="background:#1f6b41;color:#fff;border-radius:20px;padding:1px 9px;font-size:12px;font-weight:700">+' . wp_strip_all_tags( wc_price( $color['price'] ) ) . '</span>';
 		}
-
 		$item_data[] = array(
 			'key'     => __( 'اللون', '3abar-product-colors' ),
 			'display' => $display,
@@ -800,7 +903,7 @@ final class ThreeAbar_Product_Colors {
 	 *
 	 * @param WC_Order_Item_Product $item          السطر.
 	 * @param string                $cart_item_key المفتاح.
-	 * @param array                 $values        بيانات العنصر.
+	 * @param array                 $values        البيانات.
 	 * @param WC_Order              $order         الطلب.
 	 * @return void
 	 */
@@ -821,14 +924,136 @@ final class ThreeAbar_Product_Colors {
 	}
 
 	/* =====================================================================
+	 *  ستايل السلة الموحّد لصفوف الخيارات (وزن/لون)
+	 * ===================================================================== */
+
+	/**
+	 * إضافة كلاس لصفوف الخيارات في السلة.
+	 *
+	 * @param string $class         الكلاسات.
+	 * @param array  $cart_item     العنصر.
+	 * @param string $cart_item_key المفتاح.
+	 * @return string
+	 */
+	public function cart_item_class( $class, $cart_item, $cart_item_key ) {
+		if ( $this->is_option_item( $cart_item ) ) {
+			$class .= ' threeabar-options-row';
+		}
+		return $class;
+	}
+
+	/**
+	 * إضافة شارة "خيارات" قبل اسم المنتج في السلة.
+	 *
+	 * @param string $name          الاسم.
+	 * @param array  $cart_item     العنصر.
+	 * @param string $cart_item_key المفتاح.
+	 * @return string
+	 */
+	public function cart_item_name_badge( $name, $cart_item, $cart_item_key ) {
+		if ( is_admin() || ! $this->is_option_item( $cart_item ) ) {
+			return $name;
+		}
+		return '<span class="threeabar-opt-badge">✦ ' . esc_html__( 'خيارات', '3abar-product-colors' ) . '</span> ' . $name;
+	}
+
+	/**
+	 * هل العنصر "عنصر خيارات" (متغيّر/لون) وليس حزمة إضافات؟
+	 *
+	 * @param array $cart_item العنصر.
+	 * @return bool
+	 */
+	private function is_option_item( $cart_item ) {
+		if ( ! empty( $cart_item['3abar_addons'] ) ) {
+			return false; // حزمة الإضافات لها ستايلها الخاص.
+		}
+		$has_variation = ! empty( $cart_item['variation_id'] );
+		$has_color     = ! empty( $cart_item[ self::CART_KEY ] );
+		return $has_variation || $has_color;
+	}
+
+	/**
+	 * تحميل أنماط السلة/الدفع.
+	 *
+	 * @return void
+	 */
+	public function cart_assets() {
+		if ( ! function_exists( 'is_cart' ) || ! ( is_cart() || is_checkout() ) ) {
+			return;
+		}
+		wp_register_style( '3abar-colors-cart', false, array(), '1.1.0' );
+		wp_enqueue_style( '3abar-colors-cart' );
+		wp_add_inline_style( '3abar-colors-cart', $this->cart_css() );
+	}
+
+	/**
+	 * أنماط صفوف الخيارات في السلة (بطاقة موحّدة + موبايل).
+	 *
+	 * @return string
+	 */
+	private function cart_css() {
+		return '
+		.threeabar-options-row td{background:linear-gradient(180deg,#fffdf8,#fff6e4)!important;border-top:2px solid #ecd79e!important;border-bottom:2px solid #ecd79e!important}
+		.threeabar-options-row td:first-child{border-inline-start:5px solid #e0a73c!important}
+		.threeabar-options-row td.product-name{padding-block:16px!important}
+		.threeabar-opt-badge{display:inline-block;background:linear-gradient(120deg,#7a5210,#c8881f);color:#fff;font-weight:800;font-size:11px;padding:3px 10px;border-radius:30px;box-shadow:0 5px 12px -6px rgba(122,82,16,.7);margin-inline-end:6px;vertical-align:middle}
+		.threeabar-options-row .product-name>a{font-weight:800;color:#2e2106!important;font-size:15px}
+		.threeabar-options-row .variation{display:grid!important;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;margin-top:12px!important;padding:12px 14px;background:rgba(255,255,255,.7);border:1px dashed #e3c98a;border-radius:14px}
+		.threeabar-options-row .variation dt{float:none!important;clear:none!important;margin:0!important;padding:0!important;font-weight:800;color:#9a6f15;font-size:12.5px}
+		.threeabar-options-row .variation dd{margin:0!important;padding:0!important;color:#3a2a0c;font-weight:700;font-size:13.5px}
+		.threeabar-options-row .variation dd p{margin:0!important}
+
+		@media(max-width:768px){
+			.threeabar-options-row .variation{grid-template-columns:1fr;gap:4px 0;padding:10px 12px}
+			.threeabar-options-row .variation dt{font-size:12px}
+			.threeabar-options-row .variation dd{margin-bottom:6px!important}
+			.threeabar-opt-badge{font-size:10px;padding:2px 8px}
+		}
+		';
+	}
+
+	/* =====================================================================
 	 *  دوال مساعدة
 	 * ===================================================================== */
 
 	/**
-	 * ألوان منتج معيّن (مدموجة مع التخصيصات).
+	 * تعقيم قائمة معرّفات مفصولة بفواصل.
+	 *
+	 * @param string $csv النص.
+	 * @return string
+	 */
+	private function sanitize_ids( $csv ) {
+		$ids = array_filter( array_map( 'absint', explode( ',', (string) $csv ) ) );
+		return implode( ',', array_unique( $ids ) );
+	}
+
+	/**
+	 * بناء حمولة المعرض (روابط الصور) للواجهة.
+	 *
+	 * @param string $gallery_csv المعرّفات.
+	 * @return array
+	 */
+	private function build_gallery_payload( $gallery_csv ) {
+		$ids     = array_filter( array_map( 'absint', explode( ',', (string) $gallery_csv ) ) );
+		$payload = array();
+		foreach ( $ids as $id ) {
+			$large = wp_get_attachment_image_url( $id, 'woocommerce_single' );
+			$full  = wp_get_attachment_image_url( $id, 'full' );
+			if ( $large && $full ) {
+				$payload[] = array(
+					'large' => $large,
+					'full'  => $full,
+				);
+			}
+		}
+		return $payload;
+	}
+
+	/**
+	 * ألوان منتج معيّن مدموجة مع التخصيصات.
 	 *
 	 * @param int $product_id المنتج.
-	 * @return array id ⇒ بيانات اللون النهائية.
+	 * @return array
 	 */
 	public function get_product_colors( $product_id ) {
 		if ( 'yes' !== get_post_meta( $product_id, self::META_ENABLED, true ) ) {
@@ -841,18 +1066,20 @@ final class ThreeAbar_Product_Colors {
 			if ( ! array_key_exists( $id, $overrides ) ) {
 				continue;
 			}
-			$ov    = $overrides[ $id ];
-			$price = ( isset( $ov['price'] ) && '' !== $ov['price'] ) ? (float) $ov['price'] : (float) $color['price'];
-			$image = ! empty( $ov['image'] ) ? absint( $ov['image'] ) : absint( $color['image'] );
-			$type  = $image ? ( ! empty( $ov['image'] ) ? 'image' : $color['type'] ) : 'shade';
+			$ov      = $overrides[ $id ];
+			$price   = ( isset( $ov['price'] ) && '' !== $ov['price'] ) ? (float) $ov['price'] : (float) $color['price'];
+			$image   = ! empty( $ov['image'] ) ? absint( $ov['image'] ) : absint( $color['image'] );
+			$gallery = ! empty( $ov['gallery'] ) ? $ov['gallery'] : $color['gallery'];
+			$type    = ( ! empty( $ov['image'] ) ) ? 'image' : $color['type'];
 
 			$out[ $id ] = array(
-				'id'    => $id,
-				'name'  => $color['name'],
-				'type'  => $type,
-				'color' => $color['color'],
-				'image' => $image,
-				'price' => $price,
+				'id'      => $id,
+				'name'    => $color['name'],
+				'type'    => $type,
+				'color'   => $color['color'],
+				'image'   => $image,
+				'gallery' => $gallery,
+				'price'   => $price,
 			);
 		}
 		return $out;
@@ -862,7 +1089,7 @@ final class ThreeAbar_Product_Colors {
 	 * حل لون واحد لمنتج.
 	 *
 	 * @param int    $product_id المنتج.
-	 * @param string $color_id   معرّف اللون.
+	 * @param string $color_id   المعرّف.
 	 * @return array|null
 	 */
 	private function resolve_color( $product_id, $color_id ) {

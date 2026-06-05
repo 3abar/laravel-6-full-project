@@ -1125,6 +1125,17 @@ final class ThreeAbar_WC_Product_Addons {
 
 		/* دعم سلة البلوكات (Block Cart) */
 		.wc-block-cart-items__row.threeabar-bundle-row{background:linear-gradient(180deg,#fffdf8,#fff6e4)}
+
+		@media(max-width:768px){
+			.threeabar-bundle{gap:10px}
+			.threeabar-bundle-top{gap:8px}
+			.threeabar-bundle-main-name{font-size:14px;min-width:90px;flex:1 1 100%}
+			.threeabar-bundle-addons{padding:10px 11px}
+			.threeabar-addon-chip{gap:8px;padding:6px 8px}
+			.threeabar-chip-thumb img{width:34px;height:34px}
+			.threeabar-chip-name{font-size:12.5px}
+			.threeabar-chip-price{font-size:11px;padding:3px 9px}
+		}
 		';
 	}
 

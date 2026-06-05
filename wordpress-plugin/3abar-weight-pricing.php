@@ -311,7 +311,7 @@ final class ThreeAbar_Weight_Pricing {
 	 * عرض محدّد واحد (مجموعة أزرار لخاصية معيّنة).
 	 *
 	 * @param WC_Product $product   المنتج.
-	 * @param array      $attr      وصف الخاصية (taxonomy/label/is_color).
+	 * @param array      $attr      وصف الخاصية (taxonomy/label).
 	 * @param array      $available المتغيّرات المتاحة.
 	 * @param bool       $single    هل توجد خاصية واحدة فقط؟
 	 * @return void
@@ -325,7 +325,7 @@ final class ThreeAbar_Weight_Pricing {
 
 		$default_slug = $this->get_default_slug( $product, $taxonomy );
 		?>
-		<div class="threeabar-opt-group<?php echo $attr['is_color'] ? ' is-color' : ''; ?>" data-attr="<?php echo esc_attr( $taxonomy ); ?>">
+		<div class="threeabar-opt-group" data-attr="<?php echo esc_attr( $taxonomy ); ?>">
 			<label class="threeabar-opt-title"><?php echo esc_html( $attr['label'] ); ?></label>
 			<div class="threeabar-opt-options">
 				<?php
@@ -347,22 +347,15 @@ final class ThreeAbar_Weight_Pricing {
 						}
 					}
 
-					$is_def    = ( '' !== $default_slug && $default_slug === $slug );
+					$is_def     = ( '' !== $default_slug && $default_slug === $slug );
 					$data_price = ( $single && null !== $price ) ? $price : '';
 
-					$color = '';
-					if ( $attr['is_color'] ) {
-						$color = $this->get_color_value( $term, $slug );
-					}
-
 					printf(
-						'<button type="button" class="threeabar-opt-btn%1$s%2$s" data-slug="%3$s" data-price="%4$s"%5$s>%6$s<span class="threeabar-opt-name">%7$s</span>%8$s</button>',
+						'<button type="button" class="threeabar-opt-btn%1$s" data-slug="%2$s" data-price="%3$s"%4$s><span class="threeabar-opt-name">%5$s</span>%6$s</button>',
 						$is_def ? ' selected' : '',
-						$attr['is_color'] ? ' color-btn' : '',
 						esc_attr( $slug ),
 						esc_attr( $data_price ),
 						$stock ? '' : ' disabled',
-						$color ? '<span class="threeabar-color-dot" style="background:' . esc_attr( $color ) . '"></span>' : '',
 						esc_html( $name ),
 						( $single && null !== $price ) ? '<span class="threeabar-opt-price">' . wp_kses_post( wc_price( $price ) ) . '</span>' : ''
 					);
@@ -440,10 +433,16 @@ final class ThreeAbar_Weight_Pricing {
 		.threeabar-opt-btn.selected .threeabar-opt-price *{color:#ffe6ad!important;text-shadow:0 1px 2px rgba(0,0,0,.3)}
 		.threeabar-opt-btn:disabled{opacity:.4;cursor:not-allowed;text-decoration:line-through}
 
-		/* أزرار اللون */
-		.threeabar-opt-group.is-color .threeabar-opt-btn{flex-direction:row;gap:8px;padding:10px 18px}
-		.threeabar-color-dot{width:20px;height:20px;border-radius:50%;border:2px solid rgba(0,0,0,.12);box-shadow:inset 0 0 0 2px #fff;display:inline-block}
-		.threeabar-opt-btn.color-btn.selected .threeabar-color-dot{border-color:#fff}
+		@media(max-width:768px){
+			.threeabar-price-box{padding:14px 16px}
+			.threeabar-dynamic-price{font-size:1.7rem}
+			.threeabar-opt-options{gap:9px}
+			.threeabar-opt-btn{flex:1 1 calc(33.333% - 9px);min-width:0;padding:11px 8px}
+			.threeabar-opt-title{font-size:1rem}
+		}
+		@media(max-width:380px){
+			.threeabar-opt-btn{flex:1 1 calc(50% - 9px)}
+		}
 		';
 	}
 
@@ -683,28 +682,6 @@ final class ThreeAbar_Weight_Pricing {
 	private function get_default_slug( $product, $taxonomy ) {
 		$defaults = $product->get_default_attributes();
 		return ! empty( $defaults[ $taxonomy ] ) ? $defaults[ $taxonomy ] : '';
-	}
-
-	/**
-	 * استخراج قيمة اللون من ميتا المصطلح أو من الـ slug إن كان لونًا صالحًا.
-	 *
-	 * @param WP_Term|false $term المصطلح.
-	 * @param string        $slug الـ slug.
-	 * @return string
-	 */
-	private function get_color_value( $term, $slug ) {
-		if ( $term && ! is_wp_error( $term ) ) {
-			foreach ( array( 'product_attribute_color', 'color', 'pa_color_color', 'swatch_color' ) as $meta_key ) {
-				$value = get_term_meta( $term->term_id, $meta_key, true );
-				if ( $value ) {
-					return $value;
-				}
-			}
-		}
-		if ( preg_match( '/^#?[0-9a-fA-F]{6}$/', $slug ) || preg_match( '/^#?[0-9a-fA-F]{3}$/', $slug ) ) {
-			return '#' . ltrim( $slug, '#' );
-		}
-		return '';
 	}
 }
 
