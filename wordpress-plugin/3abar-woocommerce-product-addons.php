@@ -600,6 +600,12 @@ final class ThreeAbar_WC_Product_Addons {
 			$cart_item_data['3abar_addons'] = $addons;
 		}
 
+		// تمرير اللون المختار (إن وُجد بلاجن الألوان) ليُطبّق سعره ويُعرض في السلة/الطلب.
+		$color = isset( $_POST['color'] ) ? sanitize_text_field( wp_unslash( $_POST['color'] ) ) : '';
+		if ( '' !== $color ) {
+			$cart_item_data['threeabar_color'] = $color;
+		}
+
 		// إضافة المنتج الأساسي كحزمة واحدة تحمل إضافاته في بياناتها.
 		$added = WC()->cart->add_to_cart( $product_id, 1, 0, array(), $cart_item_data );
 		if ( ! $added ) {
@@ -1260,6 +1266,17 @@ final class ThreeAbar_WC_Product_Addons {
 			function addToCart(){
 				// عند الإجبارية يجب اختيار إضافة واحدة على الأقل.
 				if (state.required && !state.selected.length){ return; }
+
+				// قراءة اللون المختار من صفحة المنتج (بلاجن الألوان) إن وُجد.
+				var $colorWrap = $('.threeabar-colors-wrap');
+				var color = $colorWrap.find('.threeabar-color-input').val() || '';
+				if ($colorWrap.length && $colorWrap.data('required') == 1 && !color){
+					flash(cfg.i18n ? cfg.i18n.error : '');
+					closeModal();
+					$('html,body').animate({ scrollTop: $colorWrap.offset().top - 120 }, 400);
+					return;
+				}
+
 				$confirm.addClass('is-loading').prop('disabled', true);
 				$.ajax({
 					url: cfg.ajaxUrl,
@@ -1269,7 +1286,8 @@ final class ThreeAbar_WC_Product_Addons {
 						action:'3abar_add_to_cart',
 						nonce: cfg.nonce,
 						product_id: state.productId,
-						addons: state.selected
+						addons: state.selected,
+						color: color
 					}
 				}).done(function(res){
 					if (res && res.success){

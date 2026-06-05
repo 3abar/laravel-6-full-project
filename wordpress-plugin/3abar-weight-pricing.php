@@ -1,9 +1,9 @@
 <?php
 /**
- * Plugin Name: 3abar Weight & Options Pricing
+ * Plugin Name: 3abar Weight Pricing
  * Plugin URI:  https://3abar.com
- * Description: حل احترافي لمنتجات الوزن والخيارات في WooCommerce: أزرار وزن/لون مرتّبة حسب لوحة التحكم، سعر إجمالي ديناميكي (السعر × الكمية) بتنسيق العملة الصحيح، تحديد الافتراضي، وصفحة إعدادات لتغيير المسمّيات وتفعيل خيار اللون — مع إخفاء السعر الافتراضي لمنتجات الوزن فقط دون المساس بباقي المنتجات.
- * Version:     1.2.0
+ * Description: حل احترافي لمنتجات الوزن في WooCommerce: أزرار وزن مرتّبة حسب لوحة التحكم، سعر إجمالي ديناميكي (السعر × الكمية) بتنسيق العملة الصحيح، تحديد الافتراضي، وصفحة إعدادات لتغيير المسمّيات — مع إخفاء السعر الافتراضي لمنتجات الوزن فقط دون المساس بباقي المنتجات. يتكامل مع بلاجن "3abar Product Colors" لإضافة رسوم اللون للسعر الحي.
+ * Version:     1.3.0
  * Author:      Shawky El Moazamy
  * Author URI:  https://3abar.com
  * Text Domain: 3abar-weight-pricing
@@ -106,9 +106,6 @@ final class ThreeAbar_Weight_Pricing {
 			'choose_text'     => __( 'اختر الخيارات لعرض السعر', '3abar-weight-pricing' ),
 			'weight_taxonomy' => 'pa_weight',
 			'weight_label'    => __( 'اختر الوزن:', '3abar-weight-pricing' ),
-			'color_enabled'   => 0,
-			'color_taxonomy'  => 'pa_color',
-			'color_label'     => __( 'اختر اللون:', '3abar-weight-pricing' ),
 		);
 		$saved          = get_option( self::OPTION, array() );
 		$this->settings = wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
@@ -160,9 +157,6 @@ final class ThreeAbar_Weight_Pricing {
 			'choose_text'     => sanitize_text_field( $input['choose_text'] ?? '' ),
 			'weight_taxonomy' => sanitize_key( $input['weight_taxonomy'] ?? 'pa_weight' ),
 			'weight_label'    => sanitize_text_field( $input['weight_label'] ?? '' ),
-			'color_enabled'   => empty( $input['color_enabled'] ) ? 0 : 1,
-			'color_taxonomy'  => sanitize_key( $input['color_taxonomy'] ?? 'pa_color' ),
-			'color_label'     => sanitize_text_field( $input['color_label'] ?? '' ),
 		);
 	}
 
@@ -213,22 +207,8 @@ final class ThreeAbar_Weight_Pricing {
 						<td><input type="text" id="tw_weight_tax" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[weight_taxonomy]" value="<?php echo esc_attr( $s['weight_taxonomy'] ); ?>" />
 						<p class="description"><?php esc_html_e( 'عادةً: pa_weight', '3abar-weight-pricing' ); ?></p></td>
 					</tr>
-
-					<tr><th colspan="2"><h2><?php esc_html_e( 'خيار اللون', '3abar-weight-pricing' ); ?></h2></th></tr>
-					<tr>
-						<th scope="row"><?php esc_html_e( 'تفعيل خيار اللون', '3abar-weight-pricing' ); ?></th>
-						<td><label><input type="checkbox" name="<?php echo esc_attr( self::OPTION ); ?>[color_enabled]" value="1" <?php checked( ! empty( $s['color_enabled'] ) ); ?> /> <?php esc_html_e( 'إظهار أزرار اللون عندما يستخدمها المنتج', '3abar-weight-pricing' ); ?></label></td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="tw_color_label"><?php esc_html_e( 'مسمّى اختيار اللون', '3abar-weight-pricing' ); ?></label></th>
-						<td><input type="text" id="tw_color_label" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[color_label]" value="<?php echo esc_attr( $s['color_label'] ); ?>" /></td>
-					</tr>
-					<tr>
-						<th scope="row"><label for="tw_color_tax"><?php esc_html_e( 'خاصية اللون (Taxonomy)', '3abar-weight-pricing' ); ?></label></th>
-						<td><input type="text" id="tw_color_tax" class="regular-text" name="<?php echo esc_attr( self::OPTION ); ?>[color_taxonomy]" value="<?php echo esc_attr( $s['color_taxonomy'] ); ?>" />
-						<p class="description"><?php esc_html_e( 'عادةً: pa_color', '3abar-weight-pricing' ); ?></p></td>
-					</tr>
 				</table>
+				<p class="description"><?php esc_html_e( 'الألوان تُدار من بلاجن "3abar Product Colors" المستقل (إعدادات الألوان + لوحة المنتج).', '3abar-weight-pricing' ); ?></p>
 				<?php submit_button(); ?>
 			</form>
 		</div>
@@ -503,12 +483,18 @@ final class ThreeAbar_Weight_Pricing {
 
 				function render(){
 					var qty = parseFloat($qty.val()) || 1;
+					// رسوم اللون (إن وُجد بلاجن الألوان) تُضاف لسعر الوحدة قبل الضرب في الكمية.
+					var colorFee = parseFloat(window.ThreeAbarColorSurcharge) || 0;
+					var unit = current + (current > 0 ? colorFee : 0);
 					if(current > 0){
-						$price.removeClass('is-empty').html(formatMoney(current * qty));
+						$price.removeClass('is-empty').html(formatMoney(unit * qty));
 					} else {
 						$price.addClass('is-empty').text(cfg.i18n ? cfg.i18n.choose : '');
 					}
 				}
+
+				// إعادة الحساب عند تغيير اللون من بلاجن الألوان.
+				$(document.body).on('threeabar_color_changed', render);
 
 				$(document).on('click', '.threeabar-opt-btn:not(:disabled)', function(){
 					var $b   = $(this);
@@ -579,14 +565,9 @@ final class ThreeAbar_Weight_Pricing {
 	 * @return array
 	 */
 	public function price_hash( $hash, $product, $for_display ) {
-		$s    = $this->get_settings();
-		$keys = array( 'attribute_' . $s['weight_taxonomy'] );
-		if ( ! empty( $s['color_enabled'] ) ) {
-			$keys[] = 'attribute_' . $s['color_taxonomy'];
-		}
-		foreach ( $keys as $key ) {
-			$hash[] = isset( $_REQUEST[ $key ] ) ? sanitize_text_field( wp_unslash( $_REQUEST[ $key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		}
+		$s   = $this->get_settings();
+		$key = 'attribute_' . $s['weight_taxonomy'];
+		$hash[] = isset( $_REQUEST[ $key ] ) ? sanitize_text_field( wp_unslash( $_REQUEST[ $key ] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		return $hash;
 	}
 
@@ -639,17 +620,6 @@ final class ThreeAbar_Weight_Pricing {
 				'label'    => $s['weight_label'],
 				'is_color' => false,
 			);
-		}
-
-		if ( ! empty( $s['color_enabled'] ) ) {
-			$color_tax = $s['color_taxonomy'];
-			if ( $color_tax && in_array( $color_tax, $used, true ) ) {
-				$list[] = array(
-					'taxonomy' => $color_tax,
-					'label'    => $s['color_label'],
-					'is_color' => true,
-				);
-			}
 		}
 
 		return $list;
