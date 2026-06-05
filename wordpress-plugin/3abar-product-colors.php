@@ -39,6 +39,13 @@ final class ThreeAbar_Product_Colors {
 	private static $instance = null;
 
 	/**
+	 * منع تكرار طباعة محدّد الألوان في نفس الصفحة.
+	 *
+	 * @var bool
+	 */
+	private $selector_rendered = false;
+
+	/**
 	 * الحصول على النسخة الوحيدة.
 	 *
 	 * @return ThreeAbar_Product_Colors
@@ -549,6 +556,9 @@ final class ThreeAbar_Product_Colors {
 	 * @return void
 	 */
 	public function render_color_selector() {
+		if ( $this->selector_rendered ) {
+			return; // طُبع مسبقًا (مثلًا استدعاه بلاجن الإضافات).
+		}
 		global $product;
 		if ( ! $product instanceof WC_Product ) {
 			return;
@@ -557,6 +567,7 @@ final class ThreeAbar_Product_Colors {
 		if ( empty( $colors ) ) {
 			return;
 		}
+		$this->selector_rendered = true;
 		$label    = get_post_meta( $product->get_id(), self::META_LABEL, true );
 		$label    = $label ? $label : $this->get_settings()['label'];
 		$required = 'yes' === get_post_meta( $product->get_id(), self::META_REQUIRED, true );

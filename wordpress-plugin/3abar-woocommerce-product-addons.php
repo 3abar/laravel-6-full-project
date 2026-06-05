@@ -358,6 +358,7 @@ final class ThreeAbar_WC_Product_Addons {
 						'maxReached' => __( 'لقد وصلت للحد الأقصى من الاختيارات.', '3abar-wc-addons' ),
 						'adding'    => __( 'جارٍ الإضافة...', '3abar-wc-addons' ),
 						'error'     => __( 'حدث خطأ، حاول مرة أخرى.', '3abar-wc-addons' ),
+						'chooseColor' => __( 'الرجاء اختيار اللون أولًا.', '3abar-wc-addons' ),
 					),
 				)
 			)
@@ -406,6 +407,12 @@ final class ThreeAbar_WC_Product_Addons {
 		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
 		$max_select = $max_select > 0 ? $max_select : 1;
 		$required   = $this->is_addons_required( $product_id ) ? 1 : 0;
+
+		// طباعة محدّد الألوان (بلاجن الألوان) هنا، لأن نموذج الإضافة الأصلي مُزال
+		// لمنتجات الإضافات فلا يعمل خطّافه الافتراضي.
+		if ( class_exists( 'ThreeAbar_Product_Colors' ) ) {
+			ThreeAbar_Product_Colors::instance()->render_color_selector();
+		}
 		?>
 		<div class="threeabar-cta-wrap">
 			<button type="button"
@@ -1092,9 +1099,10 @@ final class ThreeAbar_WC_Product_Addons {
 
 		.threeabar-bundle-top{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
 		.threeabar-bundle-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(120deg,#7a5210,#c8881f);color:#fff;font-weight:800;font-size:12px;padding:5px 12px;border-radius:30px;box-shadow:0 6px 14px -6px rgba(122,82,16,.7);letter-spacing:.3px}
-		.threeabar-bundle-main-name{font-weight:800;color:#2e2106;font-size:15.5px;flex:1;min-width:120px}
-		.threeabar-bundle-main-name a{color:#2e2106!important;text-decoration:none}
-		.threeabar-bundle-main-price{font-weight:800;color:#fff;background:linear-gradient(120deg,#b97e16,#e0a73c);padding:4px 12px;border-radius:10px;font-size:13.5px;white-space:nowrap;box-shadow:0 6px 14px -8px rgba(184,128,28,.8)}
+		.threeabar-bundle-main-name,.threeabar-bundle-main-name a{font-weight:800;color:#2e2106!important;font-size:15.5px;text-decoration:none}
+		.threeabar-bundle-main-name{flex:1;min-width:120px}
+		.threeabar-bundle-main-price{font-weight:800;background:linear-gradient(120deg,#8a5a12,#c8881f);padding:5px 13px;border-radius:10px;font-size:13.5px;white-space:nowrap;box-shadow:0 6px 14px -8px rgba(184,128,28,.85)}
+		.threeabar-bundle-main-price,.threeabar-bundle-main-price *{color:#fff!important;text-shadow:0 1px 1px rgba(0,0,0,.25)}
 
 		.threeabar-bundle-addons{position:relative;padding:12px 14px;background:rgba(255,255,255,.65);border:1px dashed #e3c98a;border-radius:14px}
 		.threeabar-bundle-addons-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#9a6f15;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
@@ -1104,7 +1112,8 @@ final class ThreeAbar_WC_Product_Addons {
 		.threeabar-addon-chip:hover{transform:translateX(-3px);box-shadow:0 8px 18px -12px rgba(184,128,28,.6)}
 		.threeabar-chip-thumb img{width:38px;height:38px;border-radius:9px;object-fit:cover;display:block;margin:0!important;box-shadow:0 2px 6px -3px rgba(0,0,0,.3)}
 		.threeabar-chip-name{flex:1;font-weight:700;color:#4a3409;font-size:13px}
-		.threeabar-chip-price{font-weight:800;color:#fff;background:linear-gradient(120deg,#2c7a4d,#3a9a63);padding:3px 10px;border-radius:20px;font-size:12px;white-space:nowrap}
+		.threeabar-chip-price{font-weight:800;background:linear-gradient(120deg,#1f6b41,#2c7a4d);padding:4px 11px;border-radius:20px;font-size:12px;white-space:nowrap}
+		.threeabar-chip-price,.threeabar-chip-price *{color:#fff!important;text-shadow:0 1px 1px rgba(0,0,0,.2)}
 
 		.threeabar-bundle-foot{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#a8986f;font-style:italic}
 		.threeabar-bundle-foot:before{content:"\2714";color:#3a9a63;font-style:normal;font-weight:800}
@@ -1302,7 +1311,7 @@ final class ThreeAbar_WC_Product_Addons {
 				var $colorWrap = $('.threeabar-colors-wrap');
 				var color = $colorWrap.find('.threeabar-color-input').val() || '';
 				if ($colorWrap.length && $colorWrap.data('required') == 1 && !color){
-					flash(cfg.i18n ? cfg.i18n.error : '');
+					flash(cfg.i18n ? cfg.i18n.chooseColor : '');
 					closeModal();
 					$('html,body').animate({ scrollTop: $colorWrap.offset().top - 120 }, 400);
 					return;
