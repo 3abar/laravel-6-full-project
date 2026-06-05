@@ -645,28 +645,45 @@ final class ThreeAbar_Weight_Pricing {
 		$attribute = $attributes[ $taxonomy ];
 
 		// القيم المستخدمة فعليًا في المتغيّرات (لاستبعاد ما لا متغيّر له).
-		$var_attrs = $product->get_variation_attributes();
-		$used      = isset( $var_attrs[ $taxonomy ] ) ? array_map( 'strval', (array) $var_attrs[ $taxonomy ] ) : array();
+		$var_attrs  = $product->get_variation_attributes();
+		$used       = isset( $var_attrs[ $taxonomy ] ) ? array_map( 'strval', (array) $var_attrs[ $taxonomy ] ) : array();
 		$use_filter = ! empty( $used );
 
 		$ordered = array();
 		if ( $attribute->is_taxonomy() ) {
-			foreach ( (array) $attribute->get_options() as $term_id ) {
-				$term = get_term( (int) $term_id, $taxonomy );
-				if ( $term && ! is_wp_error( $term ) ) {
+			// نستخدم wc_get_product_terms لأنه يُرجع المصطلحات بنفس ترتيب
+			// لوحة التحكم (ترتيب الخاصية المُعرّف) — وهو نفس ترتيب قائمة
+			// المتغيّرات الافتراضية في WooCommerce.
+			$terms = wc_get_product_terms( $product->get_id(), $taxonomy, array( 'fields' => 'all' ) );
+			if ( ! is_wp_error( $terms ) && ! empty( $terms ) ) {
+				foreach ( $terms as $term ) {
 					$ordered[] = $term->slug;
 				}
 			}
-		} else {
+		}
+
+		// خاصية محلية (غير taxonomy) أو احتياطي: ترتيب خيارات المنتج كما حُفظت.
+		if ( empty( $ordered ) ) {
 			foreach ( (array) $attribute->get_options() as $option ) {
-				$ordered[] = sanitize_title( $option );
+				if ( $attribute->is_taxonomy() ) {
+					$term      = get_term( (int) $option, $taxonomy );
+					$ordered[] = ( $term && ! is_wp_error( $term ) ) ? $term->slug : '';
+				} else {
+					$ordered[] = sanitize_title( $option );
+				}
 			}
+			$ordered = array_filter( $ordered );
 		}
 
 		if ( $use_filter ) {
-			$ordered = array_values( array_filter( $ordered, function ( $slug ) use ( $used ) {
-				return in_array( (string) $slug, $used, true );
-			} ) );
+			$ordered = array_values(
+				array_filter(
+					$ordered,
+					function ( $slug ) use ( $used ) {
+						return in_array( (string) $slug, $used, true );
+					}
+				)
+			);
 		}
 
 		return $ordered;

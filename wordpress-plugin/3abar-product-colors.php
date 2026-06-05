@@ -998,15 +998,17 @@ final class ThreeAbar_Product_Colors {
 		.threeabar-options-row td.product-name{padding-block:16px!important}
 		.threeabar-opt-badge{display:inline-block;background:linear-gradient(120deg,#7a5210,#c8881f);color:#fff;font-weight:800;font-size:11px;padding:3px 10px;border-radius:30px;box-shadow:0 5px 12px -6px rgba(122,82,16,.7);margin-inline-end:6px;vertical-align:middle}
 		.threeabar-options-row .product-name>a{font-weight:800;color:#2e2106!important;font-size:15px}
-		.threeabar-options-row .variation{display:grid!important;grid-template-columns:auto 1fr;gap:8px 12px;align-items:center;margin-top:12px!important;padding:12px 14px;background:rgba(255,255,255,.7);border:1px dashed #e3c98a;border-radius:14px}
-		.threeabar-options-row .variation dt{float:none!important;clear:none!important;margin:0!important;padding:0!important;font-weight:800;color:#9a6f15;font-size:12.5px}
-		.threeabar-options-row .variation dd{margin:0!important;padding:0!important;color:#3a2a0c;font-weight:700;font-size:13.5px}
-		.threeabar-options-row .variation dd p{margin:0!important}
+		/* كل (تسمية: قيمة) على نفس السطر */
+		.threeabar-options-row .variation{display:block!important;margin-top:12px!important;padding:12px 14px;background:rgba(255,255,255,.7);border:1px dashed #e3c98a;border-radius:14px;overflow:hidden}
+		.threeabar-options-row .variation dt{display:inline!important;float:none!important;clear:none!important;width:auto!important;margin:0!important;margin-inline-end:6px!important;padding:0!important;font-weight:800;color:#9a6f15;font-size:13px}
+		.threeabar-options-row .variation dd{display:inline!important;float:none!important;clear:none!important;width:auto!important;margin:0!important;padding:0!important;color:#3a2a0c;font-weight:700;font-size:13.5px;text-align:start!important}
+		.threeabar-options-row .variation dd>p{display:inline!important;margin:0!important}
+		.threeabar-options-row .variation dd:after{content:"";display:block;height:7px}
+		.threeabar-options-row .variation dd:last-of-type:after{height:0}
 
 		@media(max-width:768px){
-			.threeabar-options-row .variation{grid-template-columns:1fr;gap:4px 0;padding:10px 12px}
-			.threeabar-options-row .variation dt{font-size:12px}
-			.threeabar-options-row .variation dd{margin-bottom:6px!important}
+			.threeabar-options-row .variation{padding:10px 12px}
+			.threeabar-options-row .variation dt{font-size:12.5px}
 			.threeabar-opt-badge{font-size:10px;padding:2px 8px}
 		}
 		';

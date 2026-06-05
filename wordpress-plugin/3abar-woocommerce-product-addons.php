@@ -1014,15 +1014,12 @@ final class ThreeAbar_WC_Product_Addons {
 		return '
 		/* ====== الزر المخصص ====== */
 		.threeabar-cta-wrap{margin:18px 0}
-		.threeabar-open-modal{position:relative;display:inline-flex!important;align-items:center;gap:12px;border:none!important;cursor:pointer;color:#1a1206!important;font-weight:800!important;font-size:17px!important;padding:16px 34px!important;border-radius:16px!important;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%)!important;box-shadow:0 16px 34px -14px rgba(184,128,28,.85);transition:transform .25s,box-shadow .25s;overflow:hidden}
-		.threeabar-open-modal:before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent,rgba(255,255,255,.45),transparent);transform:translateX(-120%);transition:transform .7s}
-		.threeabar-open-modal:hover{transform:translateY(-3px) scale(1.02);box-shadow:0 22px 44px -14px rgba(224,167,60,.95)}
-		.threeabar-open-modal:hover:before{transform:translateX(120%)}
+		.threeabar-open-modal{position:relative;display:inline-flex!important;align-items:center;gap:12px;border:none!important;cursor:pointer;color:#1a1206!important;font-weight:800!important;font-size:17px!important;padding:16px 34px!important;border-radius:16px!important;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%)!important;box-shadow:0 16px 34px -14px rgba(184,128,28,.85);transition:transform .25s,box-shadow .25s,filter .25s}
+		.threeabar-open-modal:hover{transform:translateY(-2px);box-shadow:0 20px 40px -16px rgba(224,167,60,.9);filter:brightness(1.04)}
 		.threeabar-cta-icon{font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}
 		/* حالة التعطيل عند وجود لون إجباري غير مختار */
 		.threeabar-open-modal.is-disabled{opacity:.5;filter:grayscale(.35);cursor:not-allowed;box-shadow:none}
-		.threeabar-open-modal.is-disabled:hover{transform:none}
-		.threeabar-open-modal.is-disabled:hover:before{transform:translateX(-120%)}
+		.threeabar-open-modal.is-disabled:hover{transform:none;filter:grayscale(.35)}
 		/* اهتزاز تنبيهي لبند اللون */
 		.threeabar-shake{animation:threeabarShake .5s}
 		@keyframes threeabarShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
