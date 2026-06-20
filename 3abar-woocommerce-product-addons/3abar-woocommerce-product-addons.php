@@ -1,45 +1,72 @@
 <?php
 /**
- * Plugin Name:       3abar WooCommerce Product Addons
- * Plugin URI:        https://3abar.com
- * Description:       إضافات منتجات مرفقة مع نافذة اختيار أنيقة، بحث حي، وتعديل أسعار — Ajax بالكامل.
- * Version:           1.0.0
- * Author:            Shawky El Moazamy
- * Author URI:        https://3abar.com
- * Text Domain:       3abar-wc-product-addons
- * Requires at least: 5.8
- * Requires PHP:      7.4
+ * Plugin Name: 3abar WooCommerce Product Addons
+ * Plugin URI:  https://3abar.com
+ * Description: إضافة احترافية لـ WooCommerce تتيح إرفاق منتجات/تصنيفات بمنتج معيّن، واختيارها من خلال نافذة منبثقة (Modal) أنيقة مع بحث حيّ، وسياسات تسعير متقدمة، وكل ذلك عبر Ajax بالكامل.
+ * Version:     1.1.0
+ * Author:      Shawky El Moazamy
+ * Author URI:  https://3abar.com
+ * Text Domain: 3abar-wc-addons
+ * Domain Path: /languages
+ * Requires PHP: 7.2
  * WC requires at least: 5.0
- * WC tested up to:   9.0
+ * WC tested up to: 9.0
  *
- * @package Three_Abar_WC_Product_Addons
+ * @package ThreeAbar_WC_Addons
+ *
+ * ملاحظة: هذا البلاجن مكتوب بالكامل في ملف واحد كما هو مطلوب، مع تنظيم الكود
+ * داخل كلاس واحد (Singleton) لتجنّب تعارض الأسماء، ولرفع الأداء والوضوح.
  */
 
-defined( 'ABSPATH' ) || exit;
+// منع الوصول المباشر للملف.
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 /**
- * Main plugin bootstrap.
+ * الكلاس الرئيسي للبلاجن.
+ *
+ * يدير: الميتا بوكس في لوحة التحكم، حفظ البيانات، الواجهة الأمامية (Modal)،
+ * طلبات الـ Ajax (البحث الحي + الإضافة للسلة)، والأنماط (CSS/JS).
  */
-final class Three_Abar_WC_Product_Addons {
+final class ThreeAbar_WC_Product_Addons {
 
-	const VERSION = '1.0.0';
+	/**
+	 * إصدار البلاجن (يُستخدم لإصدارات ملفات الأصول وكسر الكاش).
+	 *
+	 * @var string
+	 */
+	const VERSION = '1.1.0';
 
-	const META_PRODUCTS     = '_3abar_addon_products';
-	const META_CATEGORIES   = '_3abar_addon_categories';
-	const META_MAX_SELECT   = '_3abar_addon_max_select';
-	const META_PRICE_TYPE   = '_3abar_addon_price_type';
-	const META_PRICE_AMOUNT = '_3abar_addon_price_amount';
+	/** إعدادات واتساب (Green API) */
+	const OPTION_WHATSAPP = '3abar_wc_addons_whatsapp';
 
+	/**
+	 * مفاتيح الـ Meta المستخدمة لتخزين الإعدادات على مستوى المنتج.
+	 */
+	const META_PRODUCTS    = '_3abar_addon_products';
+	const META_CATEGORIES  = '_3abar_addon_categories';
+	const META_MAX_SELECT  = '_3abar_addon_max_select';
+	const META_PRICE_TYPE  = '_3abar_addon_price_type';
+	const META_PRICE_VALUE = '_3abar_addon_price_value';
+	const META_REQUIRED    = '_3abar_addon_required';
+
+	/**
+	 * اسم الـ action الخاص بالـ nonce.
+	 */
 	const NONCE_ACTION = '3abar_wc_addons_nonce';
-	const AJAX_PREFIX  = '3abar_wc_addons_';
 
-	/** @var self|null */
+	/**
+	 * نسخة وحيدة من الكلاس (Singleton).
+	 *
+	 * @var ThreeAbar_WC_Product_Addons|null
+	 */
 	private static $instance = null;
 
 	/**
-	 * Singleton instance.
+	 * الحصول على النسخة الوحيدة من الكلاس.
 	 *
-	 * @return self
+	 * @return ThreeAbar_WC_Product_Addons
 	 */
 	public static function instance() {
 		if ( null === self::$instance ) {
@@ -49,14 +76,17 @@ final class Three_Abar_WC_Product_Addons {
 	}
 
 	/**
-	 * Constructor — register hooks.
+	 * المُنشئ: يربط كل الـ hooks اللازمة.
 	 */
 	private function __construct() {
+		// لا نُكمّل إن لم يكن WooCommerce مفعّلًا.
 		add_action( 'plugins_loaded', array( $this, 'init' ) );
 	}
 
 	/**
-	 * Initialize after WooCommerce is available.
+	 * تهيئة البلاجن بعد تحميل الإضافات.
+	 *
+	 * @return void
 	 */
 	public function init() {
 		if ( ! class_exists( 'WooCommerce' ) ) {
@@ -64,51 +94,65 @@ final class Three_Abar_WC_Product_Addons {
 			return;
 		}
 
-		// Admin.
+		// ---------- لوحة التحكم (Admin) ----------
 		add_action( 'add_meta_boxes', array( $this, 'register_meta_box' ) );
-		add_action( 'save_post_product', array( $this, 'save_product_meta' ), 10, 2 );
-		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+		add_action( 'save_post_product', array( $this, 'save_meta_box' ), 10, 2 );
+		add_action( 'admin_enqueue_scripts', array( $this, 'admin_assets' ) );
 
-		// AJAX (admin + frontend).
-		add_action( 'wp_ajax_' . self::AJAX_PREFIX . 'search_products', array( $this, 'ajax_search_products' ) );
-		add_action( 'wp_ajax_' . self::AJAX_PREFIX . 'get_addons', array( $this, 'ajax_get_addons' ) );
-		add_action( 'wp_ajax_nopriv_' . self::AJAX_PREFIX . 'get_addons', array( $this, 'ajax_get_addons' ) );
-		add_action( 'wp_ajax_' . self::AJAX_PREFIX . 'add_to_cart', array( $this, 'ajax_add_to_cart' ) );
-		add_action( 'wp_ajax_nopriv_' . self::AJAX_PREFIX . 'add_to_cart', array( $this, 'ajax_add_to_cart' ) );
+		// ---------- الواجهة الأمامية (Frontend) ----------
+		add_action( 'wp_enqueue_scripts', array( $this, 'frontend_assets' ) );
+		add_action( 'wp', array( $this, 'maybe_swap_add_to_cart' ) );
+		add_action( 'wp_footer', array( $this, 'render_modal_template' ) );
+		// استبدال زر الإضافة في قوائم المنتجات (Catalog/Shop/التصنيفات/المنتجات ذات الصلة).
+		add_filter( 'woocommerce_loop_add_to_cart_link', array( $this, 'loop_add_to_cart_link' ), 10, 3 );
 
-		// Frontend.
-		add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_frontend_assets' ) );
-		add_action( 'woocommerce_single_product_summary', array( $this, 'maybe_replace_add_to_cart' ), 1 );
-		add_action( 'woocommerce_before_add_to_cart_form', array( $this, 'hide_default_form_start' ), 1 );
-		add_action( 'woocommerce_after_add_to_cart_form', array( $this, 'hide_default_form_end' ), 99 );
-		add_action( 'woocommerce_single_product_summary', array( $this, 'render_custom_add_to_cart' ), 30 );
-		add_action( 'wp_footer', array( $this, 'render_modal_markup' ) );
+		// ---------- Ajax ----------
+		add_action( 'wp_ajax_3abar_search_addons', array( $this, 'ajax_search_addons' ) );
+		add_action( 'wp_ajax_nopriv_3abar_search_addons', array( $this, 'ajax_search_addons' ) );
+		add_action( 'wp_ajax_3abar_add_to_cart', array( $this, 'ajax_add_to_cart' ) );
+		add_action( 'wp_ajax_nopriv_3abar_add_to_cart', array( $this, 'ajax_add_to_cart' ) );
 
-		// Cart price adjustment for addon line items.
-		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_cart_addon_prices' ), 20, 1 );
-		add_filter( 'woocommerce_get_item_data', array( $this, 'display_cart_item_meta' ), 10, 2 );
+		// ---------- الحزمة: المنتج الرئيسي + إضافاته في عنصر سلة واحد ----------
+		add_action( 'woocommerce_before_calculate_totals', array( $this, 'apply_bundle_price' ), 20, 1 );
+		add_filter( 'woocommerce_cart_item_class', array( $this, 'cart_item_class' ), 10, 3 );
+		add_filter( 'woocommerce_cart_item_name', array( $this, 'cart_item_name_bundle' ), 10, 3 );
+		add_filter( 'woocommerce_cart_item_quantity', array( $this, 'cart_item_quantity_note' ), 10, 3 );
+		add_action( 'woocommerce_checkout_create_order_line_item', array( $this, 'add_order_line_item_meta' ), 10, 4 );
+		add_action( 'wp_enqueue_scripts', array( $this, 'cart_assets' ) );
+
+		// ---------- واتساب (Green API) ----------
+		add_action( 'admin_menu', array( $this, 'register_whatsapp_menu' ) );
+		add_action( 'admin_init', array( $this, 'register_whatsapp_settings' ) );
+		add_action( 'woocommerce_thankyou', array( $this, 'whatsapp_on_thankyou' ), 20, 1 );
+		add_action( 'woocommerce_order_status_changed', array( $this, 'whatsapp_on_status_change' ), 20, 4 );
+		add_action( 'woocommerce_new_order', array( $this, 'whatsapp_notify_admin_new_order' ), 20, 2 );
+		add_action( 'woocommerce_order_status_completed', array( $this, 'whatsapp_on_order_completed' ), 20, 1 );
 	}
 
 	/**
-	 * Admin notice when WooCommerce is inactive.
+	 * تنبيه في لوحة التحكم عند غياب WooCommerce.
+	 *
+	 * @return void
 	 */
 	public function woocommerce_missing_notice() {
 		echo '<div class="notice notice-error"><p>';
-		echo esc_html__( '3abar WooCommerce Product Addons يتطلب تفعيل WooCommerce.', '3abar-wc-product-addons' );
+		echo esc_html__( 'بلاجن "3abar WooCommerce Product Addons" يتطلّب تفعيل WooCommerce أولًا.', '3abar-wc-addons' );
 		echo '</p></div>';
 	}
 
-	/* -------------------------------------------------------------------------
-	 * Meta box & product settings
-	 * ---------------------------------------------------------------------- */
+	/* =====================================================================
+	 *  القسم الأول: لوحة التحكم (Meta Box)
+	 * ===================================================================== */
 
 	/**
-	 * Register product meta box.
+	 * تسجيل الـ Meta Box في صفحة تحرير المنتج.
+	 *
+	 * @return void
 	 */
 	public function register_meta_box() {
 		add_meta_box(
-			'3abar_wc_product_addons',
-			__( 'إضافات 3abar - المنتجات المرفقة', '3abar-wc-product-addons' ),
+			'3abar_wc_addons_metabox',
+			__( '✨ إضافات 3abar - المنتجات المرفقة', '3abar-wc-addons' ),
 			array( $this, 'render_meta_box' ),
 			'product',
 			'normal',
@@ -117,58 +161,62 @@ final class Three_Abar_WC_Product_Addons {
 	}
 
 	/**
-	 * Render admin meta box HTML.
+	 * عرض محتوى الـ Meta Box.
 	 *
-	 * @param WP_Post $post Current product post.
+	 * @param WP_Post $post المنتج الحالي.
+	 * @return void
 	 */
 	public function render_meta_box( $post ) {
-		wp_nonce_field( self::NONCE_ACTION, '3abar_addons_meta_nonce' );
+		wp_nonce_field( self::NONCE_ACTION, '3abar_wc_addons_nonce_field' );
 
-		$products    = (array) get_post_meta( $post->ID, self::META_PRODUCTS, true );
-		$categories  = (array) get_post_meta( $post->ID, self::META_CATEGORIES, true );
-		$max_select  = (int) get_post_meta( $post->ID, self::META_MAX_SELECT, true );
-		$price_type  = get_post_meta( $post->ID, self::META_PRICE_TYPE, true );
-		$price_amount = get_post_meta( $post->ID, self::META_PRICE_AMOUNT, true );
+		$selected_products   = (array) get_post_meta( $post->ID, self::META_PRODUCTS, true );
+		$selected_categories = (array) get_post_meta( $post->ID, self::META_CATEGORIES, true );
+		$max_select          = (int) get_post_meta( $post->ID, self::META_MAX_SELECT, true );
+		$max_select          = $max_select > 0 ? $max_select : 1;
+		$price_type          = get_post_meta( $post->ID, self::META_PRICE_TYPE, true );
+		$price_type          = $price_type ? $price_type : 'original';
+		$price_value         = get_post_meta( $post->ID, self::META_PRICE_VALUE, true );
+		$required            = get_post_meta( $post->ID, self::META_REQUIRED, true );
+		$required            = ( 'yes' === $required ) ? 'yes' : 'no';
 
-		if ( $max_select < 1 ) {
-			$max_select = 1;
-		}
-		if ( ! $price_type ) {
-			$price_type = 'original';
-		}
-
-		$price_types = $this->get_price_type_options();
+		$price_types = array(
+			'original'          => __( 'استخدم سعر المنتج الأصلي', '3abar-wc-addons' ),
+			'increase_fixed'    => __( 'زيادة ثابتة (مبلغ)', '3abar-wc-addons' ),
+			'discount_fixed'    => __( 'خصم ثابت (مبلغ)', '3abar-wc-addons' ),
+			'increase_percent'  => __( 'زيادة بنسبة %', '3abar-wc-addons' ),
+			'discount_percent'  => __( 'خصم بنسبة %', '3abar-wc-addons' ),
+		);
 		?>
-		<div class="abar-admin-wrap" dir="rtl">
-			<div class="abar-admin-hero">
-				<div class="abar-admin-hero__glow"></div>
-				<h3 class="abar-admin-hero__title"><?php esc_html_e( 'إعدادات الإضافات', '3abar-wc-product-addons' ); ?></h3>
-				<p class="abar-admin-hero__desc"><?php esc_html_e( 'اختر المنتجات أو التصنيفات التي تظهر للعميل في نافذة الاختيار.', '3abar-wc-product-addons' ); ?></p>
+		<div class="threeabar-metabox">
+			<div class="threeabar-mb-header">
+				<span class="threeabar-mb-badge">3ABAR</span>
+				<p class="threeabar-mb-desc">
+					<?php esc_html_e( 'حدّد المنتجات و/أو التصنيفات التي ستظهر للعميل ليختار منها داخل النافذة المنبثقة عند الشراء.', '3abar-wc-addons' ); ?>
+				</p>
 			</div>
 
-			<div class="abar-admin-grid">
-				<div class="abar-admin-field abar-admin-field--full">
-					<label for="3abar_addon_products"><?php esc_html_e( 'منتجات محددة', '3abar-wc-product-addons' ); ?></label>
-					<select name="3abar_addon_products[]" id="3abar_addon_products" class="abar-select2" multiple="multiple" data-placeholder="<?php esc_attr_e( 'ابحث واختر المنتجات...', '3abar-wc-product-addons' ); ?>">
+			<div class="threeabar-mb-grid">
+				<div class="threeabar-field">
+					<label for="3abar_addon_products"><?php esc_html_e( 'منتجات محددة', '3abar-wc-addons' ); ?></label>
+					<select class="threeabar-select2-products" id="3abar_addon_products" name="<?php echo esc_attr( self::META_PRODUCTS ); ?>[]" multiple="multiple" style="width:100%;" data-placeholder="<?php esc_attr_e( 'ابحث واختر منتجات...', '3abar-wc-addons' ); ?>">
 						<?php
-						foreach ( array_filter( array_map( 'absint', $products ) ) as $pid ) {
-							$product = wc_get_product( $pid );
-							if ( ! $product ) {
-								continue;
+						foreach ( $selected_products as $product_id ) {
+							$product_obj = wc_get_product( $product_id );
+							if ( $product_obj ) {
+								printf(
+									'<option value="%d" selected="selected">%s</option>',
+									esc_attr( $product_id ),
+									esc_html( wp_strip_all_tags( $product_obj->get_formatted_name() ) )
+								);
 							}
-							printf(
-								'<option value="%d" selected="selected">%s</option>',
-								$pid,
-								esc_html( $product->get_formatted_name() )
-							);
 						}
 						?>
 					</select>
 				</div>
 
-				<div class="abar-admin-field abar-admin-field--full">
-					<label for="3abar_addon_categories"><?php esc_html_e( 'تصنيفات', '3abar-wc-product-addons' ); ?></label>
-					<select name="3abar_addon_categories[]" id="3abar_addon_categories" class="abar-select2-cat" multiple="multiple" data-placeholder="<?php esc_attr_e( 'اختر التصنيفات...', '3abar-wc-product-addons' ); ?>">
+				<div class="threeabar-field">
+					<label for="3abar_addon_categories"><?php esc_html_e( 'تصنيفات', '3abar-wc-addons' ); ?></label>
+					<select class="threeabar-select2-cats" id="3abar_addon_categories" name="<?php echo esc_attr( self::META_CATEGORIES ); ?>[]" multiple="multiple" style="width:100%;" data-placeholder="<?php esc_attr_e( 'اختر تصنيفات...', '3abar-wc-addons' ); ?>">
 						<?php
 						$terms = get_terms(
 							array(
@@ -178,11 +226,10 @@ final class Three_Abar_WC_Product_Addons {
 						);
 						if ( ! is_wp_error( $terms ) ) {
 							foreach ( $terms as $term ) {
-								$selected = in_array( (int) $term->term_id, array_map( 'absint', $categories ), true ) ? 'selected="selected"' : '';
 								printf(
 									'<option value="%d" %s>%s</option>',
-									(int) $term->term_id,
-									$selected,
+									esc_attr( $term->term_id ),
+									in_array( $term->term_id, array_map( 'intval', $selected_categories ), true ) ? 'selected="selected"' : '',
 									esc_html( $term->name )
 								);
 							}
@@ -191,23 +238,33 @@ final class Three_Abar_WC_Product_Addons {
 					</select>
 				</div>
 
-				<div class="abar-admin-field">
-					<label for="3abar_addon_max_select"><?php esc_html_e( 'الحد الأقصى لعدد المنتجات القابلة للاختيار', '3abar-wc-product-addons' ); ?></label>
-					<input type="number" min="1" step="1" id="3abar_addon_max_select" name="3abar_addon_max_select" value="<?php echo esc_attr( $max_select ); ?>" />
+				<div class="threeabar-field">
+					<label for="3abar_addon_max_select"><?php esc_html_e( 'الحد الأقصى لعدد المنتجات القابلة للاختيار', '3abar-wc-addons' ); ?></label>
+					<input type="number" min="1" step="1" id="3abar_addon_max_select" name="<?php echo esc_attr( self::META_MAX_SELECT ); ?>" value="<?php echo esc_attr( $max_select ); ?>" />
+					<small><?php esc_html_e( 'إذا كانت القيمة = 1 سيظهر للعميل أزرار راديو، وإذا كانت أكبر من 1 ستظهر مربعات اختيار.', '3abar-wc-addons' ); ?></small>
 				</div>
 
-				<div class="abar-admin-field">
-					<label for="3abar_addon_price_type"><?php esc_html_e( 'سياسة السعر', '3abar-wc-product-addons' ); ?></label>
-					<select name="3abar_addon_price_type" id="3abar_addon_price_type" class="abar-price-type-select">
+				<div class="threeabar-field">
+					<label for="3abar_addon_required"><?php esc_html_e( 'سياسة الإضافة (إجبارية / اختيارية)', '3abar-wc-addons' ); ?></label>
+					<select id="3abar_addon_required" name="<?php echo esc_attr( self::META_REQUIRED ); ?>" style="width:100%;">
+						<option value="no" <?php selected( $required, 'no' ); ?>><?php esc_html_e( 'اختيارية — يمكن البيع بدون إضافات', '3abar-wc-addons' ); ?></option>
+						<option value="yes" <?php selected( $required, 'yes' ); ?>><?php esc_html_e( 'إجبارية — يجب اختيار إضافة واحدة على الأقل', '3abar-wc-addons' ); ?></option>
+					</select>
+					<small><?php esc_html_e( 'عند اختيار "اختيارية" يستطيع العميل إتمام الطلب بدون أي إضافات.', '3abar-wc-addons' ); ?></small>
+				</div>
+
+				<div class="threeabar-field">
+					<label for="3abar_addon_price_type"><?php esc_html_e( 'سياسة السعر (Price Adjustment)', '3abar-wc-addons' ); ?></label>
+					<select id="3abar_addon_price_type" name="<?php echo esc_attr( self::META_PRICE_TYPE ); ?>" class="threeabar-price-type" style="width:100%;">
 						<?php foreach ( $price_types as $key => $label ) : ?>
 							<option value="<?php echo esc_attr( $key ); ?>" <?php selected( $price_type, $key ); ?>><?php echo esc_html( $label ); ?></option>
 						<?php endforeach; ?>
 					</select>
 				</div>
 
-				<div class="abar-admin-field abar-admin-field--amount <?php echo 'original' === $price_type ? 'is-hidden' : ''; ?>" id="3abar_price_amount_wrap">
-					<label for="3abar_addon_price_amount"><?php esc_html_e( 'قيمة التعديل (مبلغ أو نسبة)', '3abar-wc-product-addons' ); ?></label>
-					<input type="number" min="0" step="0.01" id="3abar_addon_price_amount" name="3abar_addon_price_amount" value="<?php echo esc_attr( $price_amount ); ?>" />
+				<div class="threeabar-field threeabar-price-value-wrap" style="<?php echo ( 'original' === $price_type ) ? 'display:none;' : ''; ?>">
+					<label for="3abar_addon_price_value"><?php esc_html_e( 'قيمة التعديل (مبلغ أو نسبة)', '3abar-wc-addons' ); ?></label>
+					<input type="number" min="0" step="0.01" id="3abar_addon_price_value" name="<?php echo esc_attr( self::META_PRICE_VALUE ); ?>" value="<?php echo esc_attr( $price_value ); ?>" />
 				</div>
 			</div>
 		</div>
@@ -215,810 +272,1974 @@ final class Three_Abar_WC_Product_Addons {
 	}
 
 	/**
-	 * Price adjustment type labels.
+	 * حفظ بيانات الـ Meta Box مع التحقق من الأمان والتنظيف.
 	 *
-	 * @return array<string, string>
+	 * @param int     $post_id معرّف المنتج.
+	 * @param WP_Post $post    كائن المنتج.
+	 * @return void
 	 */
-	private function get_price_type_options() {
-		return array(
-			'original'         => __( 'استخدم سعر المنتج الأصلي', '3abar-wc-product-addons' ),
-			'fixed_increase'   => __( 'زيادة ثابتة', '3abar-wc-product-addons' ),
-			'fixed_decrease'   => __( 'خصم ثابت', '3abar-wc-product-addons' ),
-			'percent_increase' => __( 'زيادة بنسبة %', '3abar-wc-product-addons' ),
-			'percent_decrease' => __( 'خصم بنسبة %', '3abar-wc-product-addons' ),
-		);
-	}
-
-	/**
-	 * Save product meta on product save.
-	 *
-	 * @param int     $post_id Product ID.
-	 * @param WP_Post $post    Post object.
-	 */
-	public function save_product_meta( $post_id, $post ) {
-		if ( ! isset( $_POST['3abar_addons_meta_nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['3abar_addons_meta_nonce'] ) ), self::NONCE_ACTION ) ) {
+	public function save_meta_box( $post_id, $post ) {
+		// التحقق من الـ nonce.
+		if ( ! isset( $_POST['3abar_wc_addons_nonce_field'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['3abar_wc_addons_nonce_field'] ) ), self::NONCE_ACTION ) ) {
 			return;
 		}
+
+		// تجاهل الحفظ التلقائي والمراجعات والصلاحيات.
 		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return;
 		}
-		if ( ! current_user_can( 'edit_product', $post_id ) ) {
+		if ( ! current_user_can( 'edit_post', $post_id ) ) {
 			return;
 		}
 
-		$products = isset( $_POST['3abar_addon_products'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['3abar_addon_products'] ) ) : array();
-		$categories = isset( $_POST['3abar_addon_categories'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['3abar_addon_categories'] ) ) : array();
-		$max_select = isset( $_POST['3abar_addon_max_select'] ) ? max( 1, (int) $_POST['3abar_addon_max_select'] ) : 1;
-		$price_type = isset( $_POST['3abar_addon_price_type'] ) ? sanitize_key( wp_unslash( $_POST['3abar_addon_price_type'] ) ) : 'original';
-		$amount     = isset( $_POST['3abar_addon_price_amount'] ) ? (float) $_POST['3abar_addon_price_amount'] : 0;
-
-		if ( ! array_key_exists( $price_type, $this->get_price_type_options() ) ) {
-			$price_type = 'original';
-		}
-
+		// المنتجات.
+		$products = isset( $_POST[ self::META_PRODUCTS ] ) ? array_map( 'absint', (array) wp_unslash( $_POST[ self::META_PRODUCTS ] ) ) : array();
 		update_post_meta( $post_id, self::META_PRODUCTS, array_values( array_filter( $products ) ) );
+
+		// التصنيفات.
+		$categories = isset( $_POST[ self::META_CATEGORIES ] ) ? array_map( 'absint', (array) wp_unslash( $_POST[ self::META_CATEGORIES ] ) ) : array();
 		update_post_meta( $post_id, self::META_CATEGORIES, array_values( array_filter( $categories ) ) );
-		update_post_meta( $post_id, self::META_MAX_SELECT, $max_select );
+
+		// الحد الأقصى.
+		$max_select = isset( $_POST[ self::META_MAX_SELECT ] ) ? absint( wp_unslash( $_POST[ self::META_MAX_SELECT ] ) ) : 1;
+		update_post_meta( $post_id, self::META_MAX_SELECT, max( 1, $max_select ) );
+
+		// نوع السعر.
+		$allowed_types = array( 'original', 'increase_fixed', 'discount_fixed', 'increase_percent', 'discount_percent' );
+		$price_type    = isset( $_POST[ self::META_PRICE_TYPE ] ) ? sanitize_text_field( wp_unslash( $_POST[ self::META_PRICE_TYPE ] ) ) : 'original';
+		$price_type    = in_array( $price_type, $allowed_types, true ) ? $price_type : 'original';
 		update_post_meta( $post_id, self::META_PRICE_TYPE, $price_type );
-		update_post_meta( $post_id, self::META_PRICE_AMOUNT, $amount );
+
+		// قيمة التعديل.
+		$price_value = isset( $_POST[ self::META_PRICE_VALUE ] ) ? wc_format_decimal( wp_unslash( $_POST[ self::META_PRICE_VALUE ] ) ) : 0;
+		update_post_meta( $post_id, self::META_PRICE_VALUE, $price_value );
+
+		// سياسة الإضافة (إجبارية / اختيارية).
+		$required = ( isset( $_POST[ self::META_REQUIRED ] ) && 'yes' === $_POST[ self::META_REQUIRED ] ) ? 'yes' : 'no';
+		update_post_meta( $post_id, self::META_REQUIRED, $required );
 	}
 
 	/**
-	 * Whether a product has addon configuration.
+	 * تحميل أصول لوحة التحكم (Select2 + أنماط الميتا بوكس) في صفحة تحرير المنتج فقط.
 	 *
-	 * @param int $product_id Product ID.
-	 * @return bool
+	 * @param string $hook الصفحة الحالية.
+	 * @return void
 	 */
-	public function product_has_addons( $product_id ) {
-		$products   = (array) get_post_meta( $product_id, self::META_PRODUCTS, true );
-		$categories = (array) get_post_meta( $product_id, self::META_CATEGORIES, true );
-		return ! empty( array_filter( $products ) ) || ! empty( array_filter( $categories ) );
-	}
-
-	/**
-	 * Resolve addon product IDs for a parent product.
-	 *
-	 * @param int $parent_id Parent product ID.
-	 * @return int[]
-	 */
-	public function get_addon_product_ids( $parent_id ) {
-		$ids        = array();
-		$products   = (array) get_post_meta( $parent_id, self::META_PRODUCTS, true );
-		$categories = (array) get_post_meta( $parent_id, self::META_CATEGORIES, true );
-
-		foreach ( array_filter( array_map( 'absint', $products ) ) as $pid ) {
-			if ( $pid !== $parent_id && 'publish' === get_post_status( $pid ) ) {
-				$ids[] = $pid;
-			}
+	public function admin_assets( $hook ) {
+		$screen = get_current_screen();
+		if ( ! $screen || 'product' !== $screen->post_type ) {
+			return;
 		}
 
-		foreach ( array_filter( array_map( 'absint', $categories ) ) as $cat_id ) {
-			$query = new WP_Query(
+		// Select2 المُرفق مع WooCommerce.
+		wp_enqueue_script( 'selectWoo' );
+		wp_enqueue_style( 'select2' );
+
+		wp_add_inline_style( 'select2', $this->admin_css() );
+		wp_add_inline_script( 'selectWoo', $this->admin_js() );
+	}
+
+	/* =====================================================================
+	 *  القسم الثاني: الواجهة الأمامية (Frontend)
+	 * ===================================================================== */
+
+	/**
+	 * تحميل أصول الواجهة الأمامية فقط في صفحات المنتجات التي تحتوي على إضافات.
+	 *
+	 * @return void
+	 */
+	public function frontend_assets() {
+		if ( ! $this->is_addons_context() ) {
+			return;
+		}
+
+		// نستخدم jQuery المُرفق مع ووردبريس فقط (لا اعتماديات خارجية).
+		wp_enqueue_script( 'jquery' );
+
+		// تمرير المتغيرات اللازمة لـ Ajax.
+		$inline_data = sprintf(
+			'window.ThreeAbarAddons = %s;',
+			wp_json_encode(
 				array(
-					'post_type'      => 'product',
-					'post_status'    => 'publish',
-					'posts_per_page' => -1,
-					'fields'         => 'ids',
-					'tax_query'      => array(
-						array(
-							'taxonomy' => 'product_cat',
-							'field'    => 'term_id',
-							'terms'    => $cat_id,
-						),
+					'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+					'nonce'   => wp_create_nonce( self::NONCE_ACTION ),
+					'i18n'    => array(
+						'loading'   => __( 'جارٍ التحميل...', '3abar-wc-addons' ),
+						'noResults' => __( 'لا توجد منتجات مطابقة.', '3abar-wc-addons' ),
+						'maxReached' => __( 'لقد وصلت للحد الأقصى من الاختيارات.', '3abar-wc-addons' ),
+						'adding'    => __( 'جارٍ الإضافة...', '3abar-wc-addons' ),
+						'error'     => __( 'حدث خطأ، حاول مرة أخرى.', '3abar-wc-addons' ),
+						'chooseColor' => __( 'الرجاء اختيار اللون أولًا.', '3abar-wc-addons' ),
+						'addOne'    => __( 'أضف', '3abar-wc-addons' ),
+						'removeOne' => __( 'إزالة', '3abar-wc-addons' ),
+						'tapToAdd'  => __( 'اضغط + لإضافة نفس المنتج مرة أخرى', '3abar-wc-addons' ),
 					),
 				)
-			);
-			if ( ! empty( $query->posts ) ) {
-				$ids = array_merge( $ids, $query->posts );
-			}
-		}
+			)
+		);
 
-		$ids = array_unique( array_map( 'absint', $ids ) );
-		$ids = array_diff( $ids, array( $parent_id ) );
+		wp_add_inline_script( 'jquery', $inline_data, 'after' );
+		wp_add_inline_script( 'jquery', $this->frontend_js(), 'after' );
 
-		return array_values( $ids );
+		// نُسجّل ستايل وهمي لإرفاق الـ CSS المُضمّن به.
+		wp_register_style( '3abar-wc-addons-inline', false, array(), self::VERSION );
+		wp_enqueue_style( '3abar-wc-addons-inline' );
+		wp_add_inline_style( '3abar-wc-addons-inline', $this->frontend_css() );
 	}
 
 	/**
-	 * Calculate adjusted price for display/cart.
+	 * استبدال زر "أضف إلى السلة" الأصلي بزر مخصص (للمنتجات التي بها إضافات فقط).
 	 *
-	 * @param float  $base_price   Original price.
-	 * @param string $type         Adjustment type.
-	 * @param float  $amount       Adjustment amount.
-	 * @return float
+	 * @return void
 	 */
-	public function calculate_adjusted_price( $base_price, $type, $amount ) {
-		$base_price = (float) $base_price;
-		$amount     = (float) $amount;
-
-		switch ( $type ) {
-			case 'fixed_increase':
-				return max( 0, $base_price + $amount );
-			case 'fixed_decrease':
-				return max( 0, $base_price - $amount );
-			case 'percent_increase':
-				return max( 0, $base_price * ( 1 + ( $amount / 100 ) ) );
-			case 'percent_decrease':
-				return max( 0, $base_price * ( 1 - ( $amount / 100 ) ) );
-			default:
-				return $base_price;
+	public function maybe_swap_add_to_cart() {
+		if ( is_admin() || ! function_exists( 'is_product' ) || ! is_product() ) {
+			return;
 		}
-	}
 
-	/* -------------------------------------------------------------------------
-	 * Admin assets
-	 * ---------------------------------------------------------------------- */
-
-	/**
-	 * Enqueue admin scripts and styles.
-	 *
-	 * @param string $hook Current admin page hook.
-	 */
-	public function enqueue_admin_assets( $hook ) {
 		global $post;
-		if ( ! in_array( $hook, array( 'post.php', 'post-new.php' ), true ) ) {
-			return;
-		}
-		if ( ! $post || 'product' !== $post->post_type ) {
+		if ( ! $post || ! $this->product_has_addons( $post->ID ) ) {
 			return;
 		}
 
-		wp_enqueue_style( 'select2', WC()->plugin_url() . '/assets/css/select2.css', array(), self::VERSION );
-		wp_enqueue_script( 'select2', WC()->plugin_url() . '/assets/js/select2/select2.full.min.js', array( 'jquery' ), self::VERSION, true );
-
-		wp_add_inline_style( 'select2', $this->get_admin_css() );
-		wp_add_inline_script(
-			'select2',
-			$this->get_admin_js(),
-			'after'
-		);
-
-		wp_localize_script(
-			'select2',
-			'abarAddonsAdmin',
-			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( self::NONCE_ACTION ),
-				'action'  => self::AJAX_PREFIX . 'search_products',
-				'i18n'    => array(
-					'searching' => __( 'جاري البحث...', '3abar-wc-product-addons' ),
-					'noResults' => __( 'لا توجد نتائج', '3abar-wc-product-addons' ),
-				),
-			)
-		);
-	}
-
-	/**
-	 * Admin panel CSS.
-	 *
-	 * @return string
-	 */
-	private function get_admin_css() {
-		return '
-		.abar-admin-wrap{font-family:"Segoe UI",Tahoma,sans-serif;margin:8px 0 4px}
-		.abar-admin-hero{position:relative;padding:28px 32px;border-radius:16px;background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 45%,#4c1d95 100%);color:#fff;overflow:hidden;margin-bottom:24px;box-shadow:0 20px 50px rgba(76,29,149,.35)}
-		.abar-admin-hero__glow{position:absolute;inset:-40% auto auto -20%;width:280px;height:280px;background:radial-gradient(circle,rgba(168,85,247,.55) 0%,transparent 70%);pointer-events:none}
-		.abar-admin-hero__title{margin:0 0 8px;font-size:22px;font-weight:700;letter-spacing:-.02em;position:relative}
-		.abar-admin-hero__desc{margin:0;opacity:.88;font-size:14px;position:relative}
-		.abar-admin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
-		.abar-admin-field--full{grid-column:1/-1}
-		.abar-admin-field label{display:block;margin-bottom:8px;font-weight:600;color:#1e293b;font-size:13px}
-		.abar-admin-field input[type=number],.abar-admin-field select{width:100%;max-width:100%;padding:10px 14px;border:2px solid #e2e8f0;border-radius:12px;font-size:14px;transition:border-color .2s,box-shadow .2s;background:#fff}
-		.abar-admin-field input:focus,.abar-admin-field select:focus{border-color:#7c3aed;outline:none;box-shadow:0 0 0 4px rgba(124,58,237,.15)}
-		.abar-admin-field .select2-container{width:100%!important}
-		.abar-admin-field .select2-container--default .select2-selection--multiple{min-height:48px;border:2px solid #e2e8f0;border-radius:12px;padding:6px 8px;background:linear-gradient(180deg,#fff 0%,#f8fafc 100%)}
-		.abar-admin-field .select2-container--default.select2-container--focus .select2-selection--multiple{border-color:#7c3aed;box-shadow:0 0 0 4px rgba(124,58,237,.12)}
-		.abar-admin-field .select2-selection__choice{background:linear-gradient(135deg,#7c3aed,#a855f7)!important;border:none!important;color:#fff!important;border-radius:999px!important;padding:4px 10px!important;margin:4px!important}
-		.abar-admin-field.is-hidden{display:none}
-		@media(max-width:782px){.abar-admin-grid{grid-template-columns:1fr}}
-		';
-	}
-
-	/**
-	 * Admin panel JavaScript.
-	 *
-	 * @return string
-	 */
-	private function get_admin_js() {
-		return "
-		jQuery(function($){
-			var \$products = $('#3abar_addon_products');
-			if (\$products.length) {
-				\$products.select2({
-					ajax: {
-						url: abarAddonsAdmin.ajaxUrl,
-						dataType: 'json',
-						delay: 250,
-						data: function(params){ return { action: abarAddonsAdmin.action, nonce: abarAddonsAdmin.nonce, q: params.term || '' }; },
-						processResults: function(data){ return data; },
-						cache: true
-					},
-					minimumInputLength: 2,
-					placeholder: \$products.data('placeholder'),
-					allowClear: true,
-					dir: 'rtl',
-					language: { searching: function(){ return abarAddonsAdmin.i18n.searching; }, noResults: function(){ return abarAddonsAdmin.i18n.noResults; } }
-				});
-			}
-			$('#3abar_addon_categories').select2({ placeholder: $('#3abar_addon_categories').data('placeholder'), allowClear: true, dir: 'rtl' });
-			$('#3abar_addon_price_type').on('change', function(){
-				var v = $(this).val();
-				$('#3abar_price_amount_wrap').toggleClass('is-hidden', v === 'original');
-			});
-		});
-		";
-	}
-
-	/**
-	 * AJAX: search products for Select2 (admin).
-	 */
-	public function ajax_search_products() {
-		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
-
-		if ( ! current_user_can( 'edit_products' ) ) {
-			wp_send_json_error( array( 'message' => 'Forbidden' ), 403 );
-		}
-
-		$term = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
-		$ids  = wc_get_products(
-			array(
-				'status' => 'publish',
-				'limit'  => 30,
-				's'      => $term,
-				'return' => 'ids',
-			)
-		);
-
-		$results = array();
-		foreach ( $ids as $id ) {
-			$product = wc_get_product( $id );
-			if ( ! $product ) {
-				continue;
-			}
-			$results[] = array(
-				'id'   => $id,
-				'text' => $product->get_formatted_name(),
-			);
-		}
-
-		wp_send_json( array( 'results' => $results ) );
-	}
-
-	/* -------------------------------------------------------------------------
-	 * Frontend: replace add to cart & modal
-	 * ---------------------------------------------------------------------- */
-
-	/** @var bool */
-	private $hide_default_form = false;
-
-	/**
-	 * Remove default add-to-cart when addons configured (simple products).
-	 */
-	public function maybe_replace_add_to_cart() {
-		if ( ! is_product() ) {
-			return;
-		}
-		global $product;
-		if ( ! $product || ! $this->product_has_addons( $product->get_id() ) ) {
-			return;
-		}
-		if ( ! $product->is_type( 'simple' ) ) {
-			return;
-		}
-
-		$this->hide_default_form = true;
+		// إزالة زر الإضافة الأصلي واستبداله بزرّنا المخصص.
 		remove_action( 'woocommerce_single_product_summary', 'woocommerce_template_single_add_to_cart', 30 );
+		add_action( 'woocommerce_single_product_summary', array( $this, 'render_custom_button' ), 30 );
 	}
 
 	/**
-	 * Hide default cart form via CSS class wrapper.
+	 * عرض الزر المخصص الذي يفتح النافذة المنبثقة.
+	 *
+	 * @return void
 	 */
-	public function hide_default_form_start() {
-		if ( $this->hide_default_form ) {
-			echo '<div class="abar-hide-native-cart" style="display:none!important" aria-hidden="true">';
-		}
-	}
-
-	/**
-	 * Close hidden wrapper.
-	 */
-	public function hide_default_form_end() {
-		if ( $this->hide_default_form ) {
-			echo '</div>';
-		}
-	}
-
-	/**
-	 * Output custom trigger button.
-	 */
-	public function render_custom_add_to_cart() {
-		if ( ! is_product() ) {
-			return;
-		}
+	public function render_custom_button() {
 		global $product;
-		if ( ! $product || ! $this->product_has_addons( $product->get_id() ) || ! $product->is_type( 'simple' ) ) {
+		if ( ! $product instanceof WC_Product ) {
 			return;
 		}
+		$product_id = $product->get_id();
+		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
+		$max_select = $max_select > 0 ? $max_select : 1;
+		$required   = $this->is_addons_required( $product_id ) ? 1 : 0;
 
-		if ( ! $product->is_purchasable() || ! $product->is_in_stock() ) {
-			return;
+		// طباعة محدّد الألوان (بلاجن الألوان) هنا، لأن نموذج الإضافة الأصلي مُزال
+		// لمنتجات الإضافات فلا يعمل خطّافه الافتراضي.
+		if ( class_exists( 'ThreeAbar_Product_Colors' ) ) {
+			ThreeAbar_Product_Colors::instance()->render_color_selector();
 		}
-
-		$max = max( 1, (int) get_post_meta( $product->get_id(), self::META_MAX_SELECT, true ) );
 		?>
-		<div class="abar-atc-wrap" data-product-id="<?php echo esc_attr( $product->get_id() ); ?>" data-max="<?php echo esc_attr( $max ); ?>">
-			<div class="abar-qty-row">
-				<label for="abar_qty_<?php echo esc_attr( $product->get_id() ); ?>" class="abar-qty-label"><?php esc_html_e( 'الكمية', '3abar-wc-product-addons' ); ?></label>
+		<div class="threeabar-cta-wrap" data-product-id="<?php echo esc_attr( $product_id ); ?>">
+			<div class="threeabar-qty-row">
+				<label class="threeabar-qty-label" for="threeabar_qty_<?php echo esc_attr( $product_id ); ?>"><?php esc_html_e( 'الكمية', '3abar-wc-addons' ); ?></label>
 				<?php
 				woocommerce_quantity_input(
 					array(
 						'min_value'   => $product->get_min_purchase_quantity(),
 						'max_value'   => $product->get_max_purchase_quantity(),
-						'input_value' => isset( $_POST['quantity'] ) ? wc_stock_amount( wp_unslash( $_POST['quantity'] ) ) : $product->get_min_purchase_quantity(),
-						'input_id'    => 'abar_qty_' . $product->get_id(),
-						'classes'     => array( 'input-text', 'qty', 'text', 'abar-qty-input' ),
+						'input_value' => $product->get_min_purchase_quantity(),
+						'input_id'    => 'threeabar_qty_' . $product_id,
+						'classes'     => array( 'input-text', 'qty', 'text', 'threeabar-qty-input' ),
 					)
 				);
 				?>
 			</div>
-			<button type="button" class="abar-trigger-btn button alt" data-abar-open-modal>
-				<span class="abar-trigger-btn__shine"></span>
-				<span class="abar-trigger-btn__text"><?php esc_html_e( 'أضف إلى السلة', '3abar-wc-product-addons' ); ?></span>
-				<span class="abar-trigger-btn__icon" aria-hidden="true">+</span>
+			<button type="button"
+					class="threeabar-open-modal button alt"
+					data-product-id="<?php echo esc_attr( $product_id ); ?>"
+					data-max="<?php echo esc_attr( $max_select ); ?>"
+					data-required="<?php echo esc_attr( $required ); ?>">
+				<span class="threeabar-cta-icon" aria-hidden="true">🛍️</span>
+				<span class="threeabar-cta-text"><?php esc_html_e( 'اطلب الآن واختر إضافاتك', '3abar-wc-addons' ); ?></span>
 			</button>
 		</div>
 		<?php
 	}
 
 	/**
-	 * Modal HTML in footer (single instance, works with Elementor).
+	 * استبدال زر "أضف إلى السلة" في قوائم المنتجات (Catalog) بزرّنا الذي يفتح النافذة.
+	 *
+	 * @param string     $html    HTML الخاص بالزر.
+	 * @param WC_Product $product المنتج.
+	 * @param array      $args    وسائط الزر.
+	 * @return string
 	 */
-	public function render_modal_markup() {
-		if ( ! is_product() ) {
+	public function loop_add_to_cart_link( $html, $product, $args = array() ) {
+		if ( ! $product instanceof WC_Product ) {
+			return $html;
+		}
+		$product_id = $product->get_id();
+		if ( ! $this->product_has_addons( $product_id ) ) {
+			return $html;
+		}
+
+		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
+		$max_select = $max_select > 0 ? $max_select : 1;
+		$required   = $this->is_addons_required( $product_id ) ? 1 : 0;
+
+		return sprintf(
+			'<button type="button" class="threeabar-open-modal threeabar-loop-btn button" data-product-id="%1$d" data-max="%2$d" data-required="%3$d"><span class="threeabar-cta-icon" aria-hidden="true">🛍️</span><span class="threeabar-cta-text">%4$s</span></button>',
+			(int) $product_id,
+			(int) $max_select,
+			(int) $required,
+			esc_html__( 'اختر الإضافات', '3abar-wc-addons' )
+		);
+	}
+
+	/**
+	 * طباعة قالب النافذة المنبثقة في الفوتر (مرة واحدة لكل صفحة منتج بها إضافات).
+	 *
+	 * @return void
+	 */
+	public function render_modal_template() {
+		if ( ! $this->is_addons_context() ) {
 			return;
 		}
 		?>
-		<div id="abar-addon-modal" class="abar-modal" role="dialog" aria-modal="true" aria-labelledby="abar-modal-title" hidden>
-			<div class="abar-modal__backdrop" data-abar-close-modal></div>
-			<div class="abar-modal__dialog">
-				<button type="button" class="abar-modal__close" data-abar-close-modal aria-label="<?php esc_attr_e( 'إغلاق', '3abar-wc-product-addons' ); ?>">&times;</button>
-				<header class="abar-modal__header">
-					<div class="abar-modal__badge">3abar</div>
-					<h2 id="abar-modal-title" class="abar-modal__title"><?php esc_html_e( 'اختر المنتجات الإضافية', '3abar-wc-product-addons' ); ?></h2>
-					<p class="abar-modal__subtitle"><?php esc_html_e( 'ابحث واختر ما يناسبك — ثم أضف الكل للسلة دفعة واحدة', '3abar-wc-product-addons' ); ?></p>
+		<div class="threeabar-modal-overlay" id="threeabarModal" aria-hidden="true">
+			<div class="threeabar-modal" role="dialog" aria-modal="true" aria-labelledby="threeabarModalTitle">
+				<div class="threeabar-modal-glow"></div>
+				<header class="threeabar-modal-head">
+					<h3 id="threeabarModalTitle"><?php esc_html_e( 'اختر المنتجات الإضافية', '3abar-wc-addons' ); ?></h3>
+					<button type="button" class="threeabar-modal-close" aria-label="<?php esc_attr_e( 'إغلاق', '3abar-wc-addons' ); ?>">&times;</button>
 				</header>
-				<div class="abar-modal__search-wrap">
-					<input type="search" class="abar-modal__search" id="abar-addon-search" placeholder="<?php esc_attr_e( 'ابحث بالاسم...', '3abar-wc-product-addons' ); ?>" autocomplete="off" />
-					<span class="abar-modal__search-icon" aria-hidden="true">⌕</span>
+
+				<div class="threeabar-search-bar">
+					<span class="threeabar-search-icon" aria-hidden="true">🔍</span>
+					<input type="text" class="threeabar-search-input" placeholder="<?php esc_attr_e( 'ابحث عن منتج...', '3abar-wc-addons' ); ?>" autocomplete="off" />
 				</div>
-				<div class="abar-modal__loader" id="abar-modal-loader">
-					<div class="abar-spinner"></div>
-					<span><?php esc_html_e( 'جاري التحميل...', '3abar-wc-product-addons' ); ?></span>
+
+				<div class="threeabar-modal-body">
+					<div class="threeabar-results"></div>
 				</div>
-				<div class="abar-modal__list" id="abar-addon-list" role="listbox"></div>
-				<p class="abar-modal__empty" id="abar-addon-empty" hidden><?php esc_html_e( 'لا توجد منتجات مطابقة', '3abar-wc-product-addons' ); ?></p>
-				<footer class="abar-modal__footer">
-					<button type="button" class="abar-modal__submit button alt" id="abar-addon-submit" disabled>
-						<?php esc_html_e( 'إضافة إلى السلة', '3abar-wc-product-addons' ); ?>
-					</button>
+
+				<footer class="threeabar-modal-foot">
+					<div class="threeabar-modal-foot-top">
+						<div class="threeabar-selection-info">
+							<span class="threeabar-selected-count">0</span>
+							<span class="threeabar-selected-sep">/</span>
+							<span class="threeabar-selected-max">0</span>
+						</div>
+						<button type="button" class="threeabar-confirm-btn" disabled>
+							<span class="threeabar-confirm-text"><?php esc_html_e( 'إضافة إلى السلة', '3abar-wc-addons' ); ?></span>
+							<span class="threeabar-confirm-spinner" aria-hidden="true"></span>
+						</button>
+					</div>
+					<div class="threeabar-selected-chips" id="threeabarSelectedChips" aria-live="polite"></div>
 				</footer>
 			</div>
 		</div>
 		<?php
 	}
 
-	/**
-	 * Enqueue frontend assets.
-	 */
-	public function enqueue_frontend_assets() {
-		if ( ! is_product() ) {
-			return;
-		}
-
-		global $product;
-		if ( ! $product || ! $this->product_has_addons( $product->get_id() ) ) {
-			return;
-		}
-
-		wp_register_style( '3abar-wc-addons', false, array(), self::VERSION );
-		wp_enqueue_style( '3abar-wc-addons' );
-		wp_add_inline_style( '3abar-wc-addons', $this->get_frontend_css() );
-
-		wp_register_script( '3abar-wc-addons', false, array( 'jquery' ), self::VERSION, true );
-		wp_enqueue_script( '3abar-wc-addons' );
-		wp_add_inline_script( '3abar-wc-addons', $this->get_frontend_js() );
-
-		wp_localize_script(
-			'3abar-wc-addons',
-			'abarAddonsFront',
-			array(
-				'ajaxUrl'  => admin_url( 'admin-ajax.php' ),
-				'nonce'    => wp_create_nonce( self::NONCE_ACTION ),
-				'actions'  => array(
-					'get'  => self::AJAX_PREFIX . 'get_addons',
-					'cart' => self::AJAX_PREFIX . 'add_to_cart',
-				),
-				'i18n'     => array(
-					'selectOne'   => __( 'اختر منتجاً واحداً على الأقل', '3abar-wc-product-addons' ),
-					'maxReached'  => __( 'وصلت للحد الأقصى من الاختيارات', '3abar-wc-product-addons' ),
-					'adding'       => __( 'جاري الإضافة...', '3abar-wc-product-addons' ),
-					'submitLabel'  => __( 'إضافة إلى السلة', '3abar-wc-product-addons' ),
-					'error'        => __( 'حدث خطأ، حاول مرة أخرى', '3abar-wc-product-addons' ),
-					'selectLimit' => __( 'يمكنك اختيار حتى', '3abar-wc-product-addons' ),
-				),
-				'currency' => get_woocommerce_currency_symbol(),
-			)
-		);
-	}
+	/* =====================================================================
+	 *  القسم الثالث: طلبات الـ Ajax
+	 * ===================================================================== */
 
 	/**
-	 * Frontend CSS — high specificity, isolated from theme conflicts.
+	 * Ajax: البحث الحي عن المنتجات المرفقة بمنتج معيّن.
 	 *
-	 * @return string
+	 * @return void
 	 */
-	private function get_frontend_css() {
-		return '
-		body .abar-atc-wrap{margin:1.25em 0 1.5em;font-family:inherit}
-		body .abar-qty-row{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-		body .abar-qty-label{font-weight:600;font-size:14px}
-		body .abar-trigger-btn{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;max-width:420px;padding:16px 28px!important;border:none!important;border-radius:14px!important;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 50%,#d946ef 100%)!important;color:#fff!important;font-size:17px!important;font-weight:700!important;cursor:pointer;overflow:hidden;box-shadow:0 12px 32px rgba(99,102,241,.45);transition:transform .2s,box-shadow .2s}
-		body .abar-trigger-btn:hover{transform:translateY(-2px);box-shadow:0 16px 40px rgba(139,92,246,.5);color:#fff!important}
-		body .abar-trigger-btn__shine{position:absolute;inset:0;background:linear-gradient(105deg,transparent 40%,rgba(255,255,255,.25) 50%,transparent 60%);transform:translateX(-100%);animation:abarShine 3s infinite}
-		@keyframes abarShine{to{transform:translateX(100%)}}
-		body .abar-trigger-btn__icon{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:20px;line-height:1}
-		body .abar-modal{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;padding:16px;font-family:inherit}
-		body .abar-modal[hidden]{display:none!important}
-		body .abar-modal__backdrop{position:absolute;inset:0;background:rgba(15,23,42,.72);backdrop-filter:blur(8px)}
-		body .abar-modal__dialog{position:relative;width:100%;max-width:560px;max-height:min(90vh,720px);display:flex;flex-direction:column;background:linear-gradient(165deg,#fff 0%,#f8fafc 100%);border-radius:24px;box-shadow:0 32px 64px rgba(15,23,42,.28);overflow:hidden;animation:abarModalIn .35s cubic-bezier(.34,1.56,.64,1)}
-		@keyframes abarModalIn{from{opacity:0;transform:scale(.92) translateY(20px)}to{opacity:1;transform:scale(1) translateY(0)}}
-		body .abar-modal__close{position:absolute;top:14px;left:14px;z-index:2;width:40px;height:40px;border:none;border-radius:50%;background:#f1f5f9;color:#334155;font-size:24px;line-height:1;cursor:pointer;transition:background .2s}
-		body .abar-modal__close:hover{background:#e2e8f0}
-		body .abar-modal__header{padding:28px 24px 16px;text-align:center;background:linear-gradient(180deg,rgba(99,102,241,.08) 0%,transparent 100%)}
-		body .abar-modal__badge{display:inline-block;padding:4px 12px;border-radius:999px;background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;font-size:11px;font-weight:700;letter-spacing:.08em;margin-bottom:10px}
-		body .abar-modal__title{margin:0 0 6px;font-size:22px;font-weight:800;color:#0f172a}
-		body .abar-modal__subtitle{margin:0;font-size:13px;color:#64748b}
-		body .abar-modal__search-wrap{position:relative;padding:0 20px 12px}
-		body .abar-modal__search{width:100%;padding:14px 44px 14px 16px;border:2px solid #e2e8f0;border-radius:14px;font-size:15px;transition:border-color .2s,box-shadow .2s}
-		body .abar-modal__search:focus{border-color:#8b5cf6;outline:none;box-shadow:0 0 0 4px rgba(139,92,246,.15)}
-		body .abar-modal__search-icon{position:absolute;right:36px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:18px;pointer-events:none}
-		body .abar-modal__list{flex:1;overflow-y:auto;padding:8px 16px 12px;display:grid;gap:10px;scrollbar-width:thin}
-		body .abar-addon-card{display:flex;align-items:center;gap:14px;padding:12px 14px;border:2px solid #f1f5f9;border-radius:16px;background:#fff;cursor:pointer;transition:border-color .2s,box-shadow .2s,transform .15s}
-		body .abar-addon-card:hover{border-color:#c4b5fd;box-shadow:0 8px 24px rgba(99,102,241,.12)}
-		body .abar-addon-card.is-selected{border-color:#7c3aed;background:linear-gradient(135deg,rgba(124,58,237,.06),rgba(168,85,247,.08));box-shadow:0 8px 24px rgba(124,58,237,.18)}
-		body .abar-addon-card.is-hidden{display:none}
-		body .abar-addon-card__thumb{width:64px;height:64px;border-radius:12px;object-fit:cover;flex-shrink:0;background:#f1f5f9}
-		body .abar-addon-card__body{flex:1;min-width:0;text-align:right}
-		body .abar-addon-card__name{margin:0 0 4px;font-size:15px;font-weight:700;color:#0f172a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-		body .abar-addon-card__price{margin:0;font-size:14px;font-weight:600;color:#7c3aed}
-		body .abar-addon-card__price del{color:#94a3b8;font-weight:400;margin-left:6px}
-		body .abar-addon-card__check{flex-shrink:0;width:22px;height:22px;accent-color:#7c3aed}
-		body .abar-modal__loader{display:flex;flex-direction:column;align-items:center;gap:12px;padding:40px;color:#64748b}
-		body .abar-modal__loader.is-hidden{display:none}
-		body .abar-spinner{width:40px;height:40px;border:3px solid #e2e8f0;border-top-color:#7c3aed;border-radius:50%;animation:abarSpin .7s linear infinite}
-		@keyframes abarSpin{to{transform:rotate(360deg)}}
-		body .abar-modal__empty{text-align:center;padding:24px;color:#94a3b8}
-		body .abar-modal__footer{padding:16px 20px 20px;border-top:1px solid #f1f5f9;background:#fff}
-		body .abar-modal__submit{width:100%;padding:16px!important;border:none!important;border-radius:14px!important;background:linear-gradient(135deg,#059669,#10b981)!important;color:#fff!important;font-size:17px!important;font-weight:700!important;cursor:pointer;transition:opacity .2s,transform .2s}
-		body .abar-modal__submit:disabled{opacity:.45;cursor:not-allowed}
-		body .abar-modal__submit:not(:disabled):hover{transform:translateY(-1px)}
-		body.abar-modal-open{overflow:hidden}
-		@media(max-width:480px){body .abar-modal__dialog{border-radius:20px 20px 0 0;max-height:92vh;align-self:flex-end}body .abar-modal{align-items:flex-end;padding:0}}
-		';
-	}
-
-	/**
-	 * Frontend JavaScript.
-	 *
-	 * @return string
-	 */
-	private function get_frontend_js() {
-		return <<<'JS'
-(function($){
-	'use strict';
-	var state = { productId: 0, max: 1, items: [], qty: 1, selectionType: 'radio' };
-
-	function getModal(){ return document.getElementById('abar-addon-modal'); }
-	function openModal(){ var m = getModal(); if(!m) return; m.hidden = false; document.body.classList.add('abar-modal-open'); }
-	function closeModal(){ var m = getModal(); if(!m) return; m.hidden = true; document.body.classList.remove('abar-modal-open'); }
-
-	function getSelectedIds(){
-		var ids = [];
-		$('#abar-addon-list .abar-addon-card__check:checked').each(function(){ ids.push(parseInt($(this).val(), 10)); });
-		return ids;
-	}
-
-	function updateSubmitState(){
-		var ids = getSelectedIds();
-		$('#abar-addon-submit').prop('disabled', ids.length === 0);
-	}
-
-	function renderList(items, max){
-		var $list = $('#abar-addon-list').empty();
-		var type = max <= 1 ? 'radio' : 'checkbox';
-		state.selectionType = type;
-		var inputName = type === 'radio' ? 'abar_addon_choice' : 'abar_addon_choice[]';
-
-		items.forEach(function(item){
-			var html = '<label class="abar-addon-card" role="option" data-name="'+ escapeAttr(item.name.toLowerCase()) +'">' +
-				'<img class="abar-addon-card__thumb" src="'+ escapeAttr(item.image) +'" alt="" loading="lazy" />' +
-				'<div class="abar-addon-card__body">' +
-					'<p class="abar-addon-card__name">'+ escapeHtml(item.name) +'</p>' +
-					'<p class="abar-addon-card__price">'+ item.price_html +'</p>' +
-				'</div>' +
-				'<input type="'+ type +'" class="abar-addon-card__check" name="'+ inputName +'" value="'+ item.id +'" />' +
-			'</label>';
-			$list.append(html);
-		});
-
-		$list.find('.abar-addon-card').on('click', function(e){
-			if ($(e.target).is('input')) return;
-			var $inp = $(this).find('input');
-			if (type === 'radio') {
-				$inp.prop('checked', true);
-			} else {
-				$inp.prop('checked', !$inp.prop('checked'));
-			}
-			$(this).toggleClass('is-selected', $inp.prop('checked'));
-			enforceMax(max);
-			updateSubmitState();
-		});
-
-		$list.on('change', '.abar-addon-card__check', function(){
-			$(this).closest('.abar-addon-card').toggleClass('is-selected', this.checked);
-			enforceMax(max);
-			updateSubmitState();
-		});
-	}
-
-	function enforceMax(max){
-		if (max <= 1) return;
-		var $checked = $('#abar-addon-list .abar-addon-card__check:checked');
-		if ($checked.length > max) {
-			$checked.last().prop('checked', false).closest('.abar-addon-card').removeClass('is-selected');
-			alert(abarAddonsFront.i18n.selectLimit + ' ' + max);
-		}
-	}
-
-	function escapeHtml(s){ return $('<div>').text(s).html(); }
-	function escapeAttr(s){ return String(s).replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-
-	function liveSearch(q){
-		q = (q || '').toLowerCase().trim();
-		var visible = 0;
-		$('#abar-addon-list .abar-addon-card').each(function(){
-			var name = $(this).data('name') || '';
-			var show = !q || name.indexOf(q) !== -1;
-			$(this).toggleClass('is-hidden', !show);
-			if (show) visible++;
-		});
-		$('#abar-addon-empty').prop('hidden', visible > 0);
-	}
-
-	function loadAddons(productId){
-		$('#abar-modal-loader').removeClass('is-hidden');
-		$('#abar-addon-list').empty();
-		$('#abar-addon-empty').prop('hidden', true);
-
-		$.post(abarAddonsFront.ajaxUrl, {
-			action: abarAddonsFront.actions.get,
-			nonce: abarAddonsFront.nonce,
-			product_id: productId
-		}).done(function(res){
-			if (!res || !res.success) {
-				alert(abarAddonsFront.i18n.error);
-				closeModal();
-				return;
-			}
-			state.items = res.data.items || [];
-			state.max = res.data.max || 1;
-			renderList(state.items, state.max);
-			$('#abar-addon-search').val('');
-		}).fail(function(){
-			alert(abarAddonsFront.i18n.error);
-			closeModal();
-		}).always(function(){
-			$('#abar-modal-loader').addClass('is-hidden');
-		});
-	}
-
-	$(document).on('click', '[data-abar-open-modal]', function(e){
-		e.preventDefault();
-		var $wrap = $(this).closest('.abar-atc-wrap');
-		state.productId = parseInt($wrap.data('product-id'), 10);
-		state.max = parseInt($wrap.data('max'), 10) || 1;
-		state.qty = parseInt($wrap.find('.qty').val(), 10) || 1;
-		openModal();
-		loadAddons(state.productId);
-	});
-
-	$(document).on('click', '[data-abar-close-modal]', closeModal);
-	$(document).on('keydown', function(e){ if (e.key === 'Escape') closeModal(); });
-
-	$('#abar-addon-search').on('input', function(){ liveSearch($(this).val()); });
-
-	$('#abar-addon-submit').on('click', function(){
-		var ids = getSelectedIds();
-		if (!ids.length) {
-			alert(abarAddonsFront.i18n.selectOne);
-			return;
-		}
-		var $btn = $(this).prop('disabled', true).text(abarAddonsFront.i18n.adding);
-
-		$.post(abarAddonsFront.ajaxUrl, {
-			action: abarAddonsFront.actions.cart,
-			nonce: abarAddonsFront.nonce,
-			product_id: state.productId,
-			quantity: state.qty,
-			addon_ids: ids
-		}).done(function(res){
-			if (res && res.success && res.data.redirect) {
-				window.location.href = res.data.redirect;
-			} else {
-				alert((res && res.data && res.data.message) || abarAddonsFront.i18n.error);
-				$btn.prop('disabled', false).text(abarAddonsFront.i18n.submitLabel);
-			}
-		}).fail(function(){
-			alert(abarAddonsFront.i18n.error);
-			$btn.prop('disabled', false).text(abarAddonsFront.i18n.submitLabel);
-		});
-	});
-})(jQuery);
-JS;
-	}
-
-	/* -------------------------------------------------------------------------
-	 * AJAX: frontend
-	 * ---------------------------------------------------------------------- */
-
-	/**
-	 * AJAX: get addon products for modal.
-	 */
-	public function ajax_get_addons() {
+	public function ajax_search_addons() {
 		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
 
 		$product_id = isset( $_POST['product_id'] ) ? absint( $_POST['product_id'] ) : 0;
-		if ( ! $product_id || ! $this->product_has_addons( $product_id ) ) {
-			wp_send_json_error( array( 'message' => __( 'لا توجد إضافات.', '3abar-wc-product-addons' ) ) );
+		$search     = isset( $_POST['search'] ) ? sanitize_text_field( wp_unslash( $_POST['search'] ) ) : '';
+
+		if ( ! $product_id ) {
+			wp_send_json_error( array( 'message' => __( 'منتج غير صالح.', '3abar-wc-addons' ) ) );
 		}
 
-		$max          = max( 1, (int) get_post_meta( $product_id, self::META_MAX_SELECT, true ) );
-		$price_type   = get_post_meta( $product_id, self::META_PRICE_TYPE, true ) ?: 'original';
-		$price_amount = (float) get_post_meta( $product_id, self::META_PRICE_AMOUNT, true );
+		try {
+			$addon_ids = $this->get_addon_product_ids( $product_id );
+		} catch ( Exception $e ) {
+			wp_send_json_success( array( 'items' => array() ) );
+		}
 
-		$items = array();
-		foreach ( $this->get_addon_product_ids( $product_id ) as $aid ) {
-			$addon = wc_get_product( $aid );
-			if ( ! $addon || ! $addon->is_purchasable() ) {
+		if ( empty( $addon_ids ) ) {
+			wp_send_json_success( array( 'items' => array() ) );
+		}
+
+		$parent_ids          = array();
+		$variation_ids       = array();
+		$simple_ids          = array();
+
+		foreach ( $addon_ids as $id ) {
+			$product = wc_get_product( $id );
+			if ( ! $product ) {
 				continue;
 			}
-
-			$base   = (float) wc_get_price_to_display( $addon );
-			$adj    = $this->calculate_adjusted_price( $base, $price_type, $price_amount );
-			$symbol = get_woocommerce_currency_symbol();
-
-			if ( 'original' !== $price_type && $adj !== $base ) {
-				$price_html = '<del>' . wc_price( $base ) . '</del> ' . wc_price( $adj );
+			if ( $product->is_type( 'variation' ) ) {
+				$variation_ids[] = $id;
+			} elseif ( $product->is_type( 'variable' ) ) {
+				$parent_ids[] = $id;
 			} else {
-				$price_html = wc_price( $adj );
+				$simple_ids[] = $id;
 			}
-
-			$image_id = $addon->get_image_id();
-			$image    = $image_id ? wp_get_attachment_image_url( $image_id, 'woocommerce_thumbnail' ) : wc_placeholder_img_src();
-
-			$items[] = array(
-				'id'         => $aid,
-				'name'       => $addon->get_name(),
-				'price'      => $adj,
-				'price_html' => $price_html,
-				'image'      => $image,
-			);
 		}
 
-		wp_send_json_success(
-			array(
-				'items' => $items,
-				'max'   => $max,
-			)
+		$parent_variation_ids = array();
+		foreach ( $parent_ids as $parent_id ) {
+			$parent_product = wc_get_product( $parent_id );
+			if ( $parent_product && $parent_product->is_type( 'variable' ) ) {
+				$children = $parent_product->get_children();
+				if ( ! empty( $children ) ) {
+					$parent_variation_ids = array_merge( $parent_variation_ids, $children );
+				}
+			}
+		}
+
+		$all_variation_ids = array_values( array_unique( array_merge( $variation_ids, $parent_variation_ids ) ) );
+		$all_product_ids   = array_values( array_unique( array_merge( $parent_ids, $all_variation_ids, $simple_ids ) ) );
+
+		$args = array(
+			'post_type'      => array( 'product', 'product_variation' ),
+			'post_status'    => 'publish',
+			'post__in'       => $all_product_ids,
+			'posts_per_page' => 50,
+			'orderby'        => 'post__in',
 		);
+
+		if ( '' !== $search ) {
+			$args['s'] = $search;
+		}
+
+		$query = new WP_Query( $args );
+		$items = array();
+
+		if ( $query->have_posts() ) {
+			while ( $query->have_posts() ) {
+				$query->the_post();
+				$current_id = get_the_ID();
+
+				try {
+					$product = wc_get_product( $current_id );
+					if ( ! $product ) {
+						continue;
+					}
+
+					if ( $product->is_type( 'variation' ) ) {
+						$item = $this->build_variation_addon_item( $product, $product_id );
+						if ( $item ) {
+							$items[] = $item;
+						}
+					} elseif ( $product->is_type( 'variable' ) ) {
+						$item = $this->build_variable_parent_addon_item( $product, $product_id );
+						if ( $item ) {
+							$items[] = $item;
+						}
+					} else {
+						$item = $this->build_simple_addon_item( $product, $product_id );
+						if ( $item ) {
+							$items[] = $item;
+						}
+					}
+				} catch ( Exception $e ) {
+					continue;
+				}
+			}
+			wp_reset_postdata();
+		}
+
+		wp_send_json_success( array( 'items' => $items ) );
 	}
 
 	/**
-	 * AJAX: add parent + addons to cart, return cart URL.
+	 * Ajax: إضافة المنتج الأساسي + المنتجات المختارة إلى السلة.
+	 *
+	 * @return void
 	 */
 	public function ajax_add_to_cart() {
 		check_ajax_referer( self::NONCE_ACTION, 'nonce' );
 
 		$product_id = isset( $_POST['product_id'] ) ? absint( $_POST['product_id'] ) : 0;
 		$quantity   = isset( $_POST['quantity'] ) ? max( 1, (int) $_POST['quantity'] ) : 1;
-		$addon_ids  = isset( $_POST['addon_ids'] ) ? array_map( 'absint', (array) $_POST['addon_ids'] ) : array();
+		$addons     = isset( $_POST['addons'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['addons'] ) ) : array();
 
-		$product = wc_get_product( $product_id );
-		if ( ! $product || ! $product->is_purchasable() ) {
-			wp_send_json_error( array( 'message' => __( 'المنتج غير متاح.', '3abar-wc-product-addons' ) ) );
+		if ( ! $product_id ) {
+			wp_send_json_error( array( 'message' => __( 'منتج غير صالح.', '3abar-wc-addons' ) ) );
 		}
 
-		$max = max( 1, (int) get_post_meta( $product_id, self::META_MAX_SELECT, true ) );
-		if ( count( $addon_ids ) > $max ) {
-			wp_send_json_error( array( 'message' => __( 'تجاوزت الحد الأقصى للاختيار.', '3abar-wc-product-addons' ) ) );
-		}
+		$addons = array_values( array_filter( $addons ) );
 
-		$allowed = $this->get_addon_product_ids( $product_id );
-		foreach ( $addon_ids as $aid ) {
-			if ( ! in_array( $aid, $allowed, true ) ) {
-				wp_send_json_error( array( 'message' => __( 'منتج إضافي غير صالح.', '3abar-wc-product-addons' ) ) );
+		foreach ( $addons as $aid ) {
+			if ( ! $this->is_allowed_addon_id( $aid, $product_id ) ) {
+				wp_send_json_error( array( 'message' => __( 'منتج إضافي غير صالح.', '3abar-wc-addons' ) ) );
 			}
 		}
 
-		$price_type   = get_post_meta( $product_id, self::META_PRICE_TYPE, true ) ?: 'original';
-		$price_amount = (float) get_post_meta( $product_id, self::META_PRICE_AMOUNT, true );
-
-		$parent_key = WC()->cart->add_to_cart( $product_id, $quantity );
-		if ( ! $parent_key ) {
-			wp_send_json_error( array( 'message' => __( 'تعذرت إضافة المنتج الأساسي.', '3abar-wc-product-addons' ) ) );
-		}
-
-		foreach ( $addon_ids as $aid ) {
-			$addon_product = wc_get_product( $aid );
-			if ( ! $addon_product ) {
-				continue;
-			}
-			$base_price = (float) wc_get_price_to_display( $addon_product );
-			$adj_price  = $this->calculate_adjusted_price( $base_price, $price_type, $price_amount );
-
-			$cart_item_data = array(
-				'3abar_is_addon'     => true,
-				'3abar_parent_id'    => $product_id,
-				'3abar_price_type'   => $price_type,
-				'3abar_price_amount' => $price_amount,
-				'3abar_custom_price' => $adj_price,
+		$max_select = (int) get_post_meta( $product_id, self::META_MAX_SELECT, true );
+		$max_select = $max_select > 0 ? $max_select : 1;
+		if ( count( $addons ) > $max_select ) {
+			wp_send_json_error(
+				array(
+					'message' => sprintf(
+						/* translators: %d: max selections */
+						__( 'تجاوزت الحد الأقصى (%d اختيارات).', '3abar-wc-addons' ),
+						$max_select
+					),
+				)
 			);
-
-			WC()->cart->add_to_cart( $aid, 1, 0, array(), $cart_item_data );
 		}
+
+		if ( $this->is_addons_required( $product_id ) && empty( $addons ) ) {
+			wp_send_json_error( array( 'message' => __( 'يجب اختيار إضافة واحدة على الأقل لهذا المنتج.', '3abar-wc-addons' ) ) );
+		}
+
+		$cart_item_data = array();
+		if ( ! empty( $addons ) ) {
+			$cart_item_data['3abar_addons'] = $addons;
+		}
+
+		$color = isset( $_POST['color'] ) ? sanitize_text_field( wp_unslash( $_POST['color'] ) ) : '';
+		if ( '' !== $color ) {
+			$cart_item_data['threeabar_color'] = $color;
+		}
+
+		$added = WC()->cart->add_to_cart( $product_id, $quantity, 0, array(), $cart_item_data );
+		if ( ! $added ) {
+			wp_send_json_error( array( 'message' => __( 'تعذّرت إضافة المنتج إلى السلة.', '3abar-wc-addons' ) ) );
+		}
+
+		$this->maybe_send_whatsapp_after_add_to_cart( $product_id, $quantity, $addons );
 
 		wp_send_json_success(
 			array(
-				'redirect' => wc_get_cart_url(),
+				'message'      => __( 'تمت الإضافة بنجاح!', '3abar-wc-addons' ),
+				'redirect_url' => wc_get_cart_url(),
 			)
 		);
 	}
 
+	/* =====================================================================
+	 *  القسم الرابع: الحزمة داخل السلة (منتج رئيسي + إضافاته في عنصر واحد)
+	 * ===================================================================== */
+
 	/**
-	 * Apply custom prices to addon cart lines.
+	 * حساب سعر الحزمة = سعر المنتج الرئيسي + مجموع أسعار الإضافات (بعد تطبيق السياسة).
 	 *
-	 * @param WC_Cart $cart Cart object.
+	 * يُضبط هذا السعر على وحدة المنتج الرئيسي، فيظهر الإجمالي مجمّعًا في خانة واحدة،
+	 * ويُضرب تلقائيًا في الكمية من قِبل WooCommerce.
+	 *
+	 * @param WC_Cart $cart السلة.
+	 * @return void
 	 */
-	public function apply_cart_addon_prices( $cart ) {
+	public function apply_bundle_price( $cart ) {
 		if ( is_admin() && ! defined( 'DOING_AJAX' ) ) {
 			return;
 		}
+		if ( did_action( 'woocommerce_before_calculate_totals' ) >= 2 ) {
+			return;
+		}
+
 		foreach ( $cart->get_cart() as $cart_item ) {
-			if ( empty( $cart_item['3abar_is_addon'] ) || ! isset( $cart_item['3abar_custom_price'] ) ) {
+			if ( empty( $cart_item['3abar_addons'] ) || ! is_array( $cart_item['3abar_addons'] ) ) {
 				continue;
 			}
-			$cart_item['data']->set_price( (float) $cart_item['3abar_custom_price'] );
+			$parent_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
+			$total     = (float) $cart_item['data']->get_price( 'edit' );
+
+			foreach ( $cart_item['3abar_addons'] as $addon_id ) {
+				$addon = wc_get_product( absint( $addon_id ) );
+				if ( ! $addon ) {
+					continue;
+				}
+				$total += $this->calculate_adjusted_price( (float) $addon->get_price( 'edit' ), $parent_id );
+			}
+
+			$cart_item['data']->set_price( $total );
 		}
 	}
 
 	/**
-	 * Show parent product reference in cart.
+	 * إضافة كلاس CSS لصف الحزمة في السلة (لتنسيقه كمربع واحد).
 	 *
-	 * @param array $item_data Item data rows.
-	 * @param array $cart_item Cart item.
-	 * @return array
+	 * @param string $class         كلاسات الصف.
+	 * @param array  $cart_item     عنصر السلة.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @return string
 	 */
-	public function display_cart_item_meta( $item_data, $cart_item ) {
-		if ( ! empty( $cart_item['3abar_is_addon'] ) && ! empty( $cart_item['3abar_parent_id'] ) ) {
-			$parent = get_the_title( (int) $cart_item['3abar_parent_id'] );
-			if ( $parent ) {
-				$item_data[] = array(
-					'key'   => __( 'إضافة لـ', '3abar-wc-product-addons' ),
-					'value' => $parent,
-				);
+	public function cart_item_class( $class, $cart_item, $cart_item_key ) {
+		if ( ! empty( $cart_item['3abar_addons'] ) ) {
+			$class .= ' threeabar-bundle-row';
+		}
+		return $class;
+	}
+
+	/**
+	 * عرض المنتج الرئيسي وإضافاته داخل خانة الاسم كحزمة واحدة، مع توضيح سعر كل عنصر.
+	 *
+	 * @param string $name          اسم المنتج (HTML).
+	 * @param array  $cart_item     عنصر السلة.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @return string
+	 */
+	public function cart_item_name_bundle( $name, $cart_item, $cart_item_key ) {
+		if ( empty( $cart_item['3abar_addons'] ) || ! is_array( $cart_item['3abar_addons'] ) || is_admin() ) {
+			return $name;
+		}
+
+		$parent_id = isset( $cart_item['product_id'] ) ? absint( $cart_item['product_id'] ) : 0;
+		// نجلب نسخة جديدة من المنتج لأن سعر النسخة الموجودة في السلة تم تعديله
+		// إلى إجمالي الحزمة عبر apply_bundle_price.
+		$main_product = wc_get_product( $parent_id );
+		$main_price   = $main_product ? (float) wc_get_price_to_display( $main_product ) : 0;
+
+		// تجهيز بطاقات الإضافات.
+		$chips = '';
+		$count = 0;
+		$addon_counts = array_count_values( array_map( 'absint', $cart_item['3abar_addons'] ) );
+		foreach ( $addon_counts as $addon_id => $addon_qty ) {
+			$addon = wc_get_product( absint( $addon_id ) );
+			if ( ! $addon ) {
+				continue;
+			}
+			$count += (int) $addon_qty;
+			$adj    = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
+			$thumb  = $addon->get_image( 'woocommerce_gallery_thumbnail' );
+			$name   = $addon->get_name();
+			if ( $addon_qty > 1 ) {
+				$name .= ' × ' . (int) $addon_qty;
+			}
+			$line_total = $adj * (int) $addon_qty;
+			$chips     .= '<div class="threeabar-addon-chip">'
+				. '<span class="threeabar-chip-thumb">' . $thumb . '</span>'
+				. '<span class="threeabar-chip-name">' . esc_html( $name ) . '</span>'
+				. '<span class="threeabar-chip-price">' . wc_price( $line_total ) . '</span>'
+				. '</div>';
+		}
+
+		$rows  = '<div class="threeabar-bundle">';
+		$rows .= '<div class="threeabar-bundle-top">';
+		$rows .= '<span class="threeabar-bundle-badge">🎁 ' . esc_html__( 'حزمة', '3abar-wc-addons' ) . '</span>';
+		$rows .= '<span class="threeabar-bundle-main-name">' . $name . '</span>';
+		$rows .= '<span class="threeabar-bundle-main-price">' . wc_price( $main_price ) . '</span>';
+		$rows .= '</div>';
+
+		if ( $chips ) {
+			$rows .= '<div class="threeabar-bundle-addons">';
+			$rows .= '<div class="threeabar-bundle-addons-label"><span class="threeabar-spark">✦</span> '
+				. sprintf(
+					/* translators: %d addons count */
+					esc_html__( 'الإضافات المختارة (%d)', '3abar-wc-addons' ),
+					(int) $count
+				) . '</div>';
+			$rows .= '<div class="threeabar-bundle-chips">' . $chips . '</div>';
+			$rows .= '</div>';
+		}
+
+		$rows .= '<div class="threeabar-bundle-foot">' . esc_html__( 'الإجمالي يشمل المنتج الأساسي وكل الإضافات', '3abar-wc-addons' ) . '</div>';
+		$rows .= '</div>';
+
+		return $rows;
+	}
+
+	/**
+	 * إضافة تلميح بسيط بجوار خانة الكمية يوضّح أنها كمية للحزمة كاملة.
+	 *
+	 * @param string $html          HTML الخاص بالكمية.
+	 * @param string $cart_item_key مفتاح العنصر.
+	 * @param array  $cart_item     عنصر السلة.
+	 * @return string
+	 */
+	public function cart_item_quantity_note( $html, $cart_item_key, $cart_item ) {
+		if ( ! empty( $cart_item['3abar_addons'] ) && ! is_admin() ) {
+			$html .= '<small class="threeabar-bundle-qty-note">' . esc_html__( 'لكل حزمة', '3abar-wc-addons' ) . '</small>';
+		}
+		return $html;
+	}
+
+	/**
+	 * حفظ تفاصيل الإضافات على سطر الطلب لتظهر في الطلب والفواتير والبريد.
+	 *
+	 * @param WC_Order_Item_Product $item          سطر الطلب.
+	 * @param string                $cart_item_key مفتاح عنصر السلة.
+	 * @param array                 $values        بيانات عنصر السلة.
+	 * @param WC_Order              $order         الطلب.
+	 * @return void
+	 */
+	public function add_order_line_item_meta( $item, $cart_item_key, $values, $order ) {
+		if ( empty( $values['3abar_addons'] ) || ! is_array( $values['3abar_addons'] ) ) {
+			return;
+		}
+		$parent_id = isset( $values['product_id'] ) ? absint( $values['product_id'] ) : 0;
+		$labels = array();
+		$addon_counts = array_count_values( array_map( 'absint', $values['3abar_addons'] ) );
+		foreach ( $addon_counts as $addon_id => $addon_qty ) {
+			$addon = wc_get_product( absint( $addon_id ) );
+			if ( ! $addon ) {
+				continue;
+			}
+			$adj      = $this->calculate_adjusted_price( (float) wc_get_price_to_display( $addon ), $parent_id );
+			$label    = $addon->get_name();
+			if ( $addon_qty > 1 ) {
+				$label .= ' × ' . (int) $addon_qty;
+			}
+			$labels[] = $label . ' (' . wp_strip_all_tags( wc_price( $adj * (int) $addon_qty ) ) . ')';
+		}
+		if ( ! empty( $labels ) ) {
+			$item->add_meta_data( __( 'المنتجات الإضافية', '3abar-wc-addons' ), implode( ' + ', $labels ), true );
+		}
+	}
+
+	/**
+	 * تحميل أنماط صفحة السلة/الدفع لإظهار الحزمة كمربع واحد أنيق.
+	 *
+	 * @return void
+	 */
+	public function cart_assets() {
+		if ( ! function_exists( 'is_cart' ) || ! ( is_cart() || is_checkout() ) ) {
+			return;
+		}
+		wp_register_style( '3abar-wc-addons-cart', false, array(), self::VERSION );
+		wp_enqueue_style( '3abar-wc-addons-cart' );
+		wp_add_inline_style( '3abar-wc-addons-cart', $this->cart_css() );
+	}
+
+	/* =====================================================================
+	 *  القسم الخامس: دوال مساعدة
+	 * ===================================================================== */
+
+	/**
+	 * هل يحتوي المنتج على إضافات مُعرّفة؟
+	 *
+	 * @param int $product_id معرّف المنتج.
+	 * @return bool
+	 */
+	private function product_has_addons( $product_id ) {
+		return ! empty( $this->get_addon_product_ids( $product_id ) );
+	}
+
+	/**
+	 * هل الإضافات إجبارية لهذا المنتج؟
+	 *
+	 * @param int $product_id معرّف المنتج.
+	 * @return bool
+	 */
+	private function is_addons_required( $product_id ) {
+		return 'yes' === get_post_meta( $product_id, self::META_REQUIRED, true );
+	}
+
+	/**
+	 * هل نحن في سياق يستلزم تحميل أصول البلاجن والنافذة المنبثقة؟
+	 * (صفحة منتج به إضافات، أو صفحات القوائم: المتجر/التصنيفات/الوسوم).
+	 *
+	 * @return bool
+	 */
+	private function is_addons_context() {
+		if ( is_admin() || ! function_exists( 'is_woocommerce' ) ) {
+			return false;
+		}
+		if ( is_product() ) {
+			global $post;
+			return $post && $this->product_has_addons( $post->ID );
+		}
+		// صفحات القوائم قد تحتوي منتجات لها إضافات.
+		return is_shop() || is_product_taxonomy();
+	}
+
+	/**
+	 * الحصول على قائمة معرّفات المنتجات المرفقة (من المنتجات المحددة + التصنيفات).
+	 *
+	 * @param int $product_id معرّف المنتج الأصل.
+	 * @return int[]
+	 */
+	private function get_addon_product_ids( $product_id ) {
+		$products   = (array) get_post_meta( $product_id, self::META_PRODUCTS, true );
+		$categories = (array) get_post_meta( $product_id, self::META_CATEGORIES, true );
+
+		$ids = array_map( 'absint', array_filter( $products ) );
+
+		if ( ! empty( $categories ) ) {
+			$cat_query = new WP_Query(
+				array(
+					'post_type'      => 'product',
+					'post_status'    => 'publish',
+					'posts_per_page' => 200,
+					'fields'         => 'ids',
+					'tax_query'      => array(
+						array(
+							'taxonomy' => 'product_cat',
+							'field'    => 'term_id',
+							'terms'    => array_map( 'absint', $categories ),
+						),
+					),
+				)
+			);
+			if ( ! empty( $cat_query->posts ) ) {
+				$ids = array_merge( $ids, array_map( 'absint', $cat_query->posts ) );
 			}
 		}
-		return $item_data;
+
+		$ids = array_diff( array_unique( $ids ), array( absint( $product_id ) ) );
+
+		return $this->expand_allowed_addon_ids( array_values( $ids ) );
+	}
+
+	/**
+	 * توسيع المعرّفات لتشمل Variations التابعة للمنتجات المتغيرة.
+	 *
+	 * @param int[] $ids معرّفات المنتجات.
+	 * @return int[]
+	 */
+	private function expand_allowed_addon_ids( array $ids ) {
+		$expanded = array();
+
+		foreach ( $ids as $id ) {
+			$expanded[] = $id;
+			$product    = wc_get_product( $id );
+			if ( $product && $product->is_type( 'variable' ) ) {
+				$children = $product->get_children();
+				if ( ! empty( $children ) ) {
+					$expanded = array_merge( $expanded, array_map( 'absint', $children ) );
+				}
+			}
+		}
+
+		return array_values( array_unique( array_map( 'absint', $expanded ) ) );
+	}
+
+	/**
+	 * التحقق من أن معرّف الإضافة مسموح به.
+	 *
+	 * @param int $addon_id  معرّف الإضافة.
+	 * @param int $parent_id معرّف المنتج الأصل.
+	 * @return bool
+	 */
+	private function is_allowed_addon_id( $addon_id, $parent_id ) {
+		$allowed = $this->get_addon_product_ids( $parent_id );
+		return in_array( absint( $addon_id ), $allowed, true );
+	}
+
+	/**
+	 * بناء عنصر إضافة لمنتج بسيط.
+	 *
+	 * @param WC_Product $product    المنتج.
+	 * @param int        $parent_id  المنتج الأصل.
+	 * @return array|null
+	 */
+	private function build_simple_addon_item( $product, $parent_id ) {
+		if ( ! $product->is_purchasable() || ! $product->is_in_stock() ) {
+			return null;
+		}
+
+		$base_price     = (float) wc_get_price_to_display( $product );
+		if ( $base_price <= 0 ) {
+			return null;
+		}
+
+		$adjusted_price = $this->calculate_adjusted_price( $base_price, $parent_id );
+		if ( $adjusted_price < 0 ) {
+			return null;
+		}
+
+		return array(
+			'id'          => $product->get_id(),
+			'name'        => $product->get_name(),
+			'image'       => wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' ) ?: wc_placeholder_img_src( 'woocommerce_thumbnail' ),
+			'price_html'  => $this->format_addon_price_html( $base_price, $adjusted_price ),
+			'price_raw'   => $adjusted_price,
+			'is_discount' => $adjusted_price < $base_price,
+			'orig_price'  => $adjusted_price !== $base_price ? wc_price( $base_price ) : '',
+			'type'        => 'simple',
+		);
+	}
+
+	/**
+	 * بناء عنصر إضافة لـ Variation.
+	 *
+	 * @param WC_Product_Variation $product   الـ Variation.
+	 * @param int                  $parent_id المنتج الأصل.
+	 * @return array|null
+	 */
+	private function build_variation_addon_item( $product, $parent_id ) {
+		$parent_product = wc_get_product( $product->get_parent_id() );
+		if ( ! $parent_product || ! $product->is_in_stock() ) {
+			return null;
+		}
+
+		$base_price = (float) wc_get_price_to_display( $product );
+		if ( $base_price <= 0 ) {
+			return null;
+		}
+
+		$adjusted_price = $this->calculate_adjusted_price( $base_price, $parent_id );
+		if ( $adjusted_price < 0 ) {
+			return null;
+		}
+
+		$attribute_names = array();
+		foreach ( $product->get_attributes() as $taxonomy => $term_slug ) {
+			$term = get_term_by( 'slug', $term_slug, $taxonomy );
+			$attribute_names[] = ( $term && ! is_wp_error( $term ) ) ? $term->name : $term_slug;
+		}
+		$variation_suffix = ! empty( $attribute_names ) ? ' - ' . implode( ', ', $attribute_names ) : '';
+
+		return array(
+			'id'          => $product->get_id(),
+			'name'        => $parent_product->get_name() . $variation_suffix,
+			'image'       => wp_get_attachment_image_url( $product->get_image_id() ?: $parent_product->get_image_id(), 'woocommerce_thumbnail' ) ?: wc_placeholder_img_src( 'woocommerce_thumbnail' ),
+			'price_html'  => $this->format_addon_price_html( $base_price, $adjusted_price ),
+			'price_raw'   => $adjusted_price,
+			'is_discount' => $adjusted_price < $base_price,
+			'orig_price'  => $adjusted_price !== $base_price ? wc_price( $base_price ) : '',
+			'parent_id'   => $product->get_parent_id(),
+			'type'        => 'variation',
+		);
+	}
+
+	/**
+	 * بناء عنصر إضافة لمنتج متغير (الأب).
+	 *
+	 * @param WC_Product_Variable $product   المنتج الأب.
+	 * @param int                 $parent_id المنتج الأصل.
+	 * @return array|null
+	 */
+	private function build_variable_parent_addon_item( $product, $parent_id ) {
+		$base_price     = (float) wc_get_price_to_display( $product );
+		$adjusted_price = $this->calculate_adjusted_price( $base_price, $parent_id );
+
+		return array(
+			'id'          => $product->get_id(),
+			'name'        => $product->get_name() . ' (' . __( 'جميع المقاسات', '3abar-wc-addons' ) . ')',
+			'image'       => wp_get_attachment_image_url( $product->get_image_id(), 'woocommerce_thumbnail' ) ?: wc_placeholder_img_src( 'woocommerce_thumbnail' ),
+			'price_html'  => $this->format_addon_price_html( $base_price, $adjusted_price ),
+			'price_raw'   => $adjusted_price,
+			'is_discount' => $adjusted_price < $base_price,
+			'orig_price'  => $adjusted_price !== $base_price ? wc_price( $base_price ) : '',
+			'type'        => 'variable_parent',
+		);
+	}
+
+	/**
+	 * تنسيق السعر بشكل موحّد وجميل (بسيط / متغير / Variation).
+	 *
+	 * @param float $base_price     السعر الأصلي.
+	 * @param float $adjusted_price السعر بعد التعديل.
+	 * @return string
+	 */
+	private function format_addon_price_html( $base_price, $adjusted_price ) {
+		$base_price     = (float) $base_price;
+		$adjusted_price = (float) $adjusted_price;
+
+		if ( $adjusted_price < $base_price ) {
+			$percent = $base_price > 0 ? round( ( ( $base_price - $adjusted_price ) / $base_price ) * 100 ) : 0;
+			return '<span class="threeabar-price-wrap threeabar-price-wrap--discount">'
+				. '<span class="threeabar-price-current">' . wc_price( $adjusted_price ) . '</span>'
+				. '<span class="threeabar-price-orig"><del>' . wc_price( $base_price ) . '</del></span>'
+				. ( $percent > 0 ? '<span class="threeabar-price-badge">-' . esc_html( $percent ) . '%</span>' : '' )
+				. '</span>';
+		}
+
+		if ( $adjusted_price > $base_price ) {
+			return '<span class="threeabar-price-wrap threeabar-price-wrap--increase">'
+				. '<span class="threeabar-price-current">' . wc_price( $adjusted_price ) . '</span>'
+				. '<span class="threeabar-price-note">' . esc_html__( 'سعر معدّل', '3abar-wc-addons' ) . '</span>'
+				. '</span>';
+		}
+
+		return '<span class="threeabar-price-wrap threeabar-price-wrap--regular">'
+			. '<span class="threeabar-price-current">' . wc_price( $adjusted_price ) . '</span>'
+			. '</span>';
+	}
+
+	/**
+	 * حساب السعر بعد تطبيق سياسة التسعير الخاصة بالمنتج الأصل.
+	 *
+	 * @param float $base_price سعر المنتج المرفق الأصلي.
+	 * @param int   $parent_id  معرّف المنتج الأصل (الذي يحمل سياسة التسعير).
+	 * @return float
+	 */
+	private function calculate_adjusted_price( $base_price, $parent_id ) {
+		$type  = get_post_meta( $parent_id, self::META_PRICE_TYPE, true );
+		$value = (float) get_post_meta( $parent_id, self::META_PRICE_VALUE, true );
+		$price = (float) $base_price;
+
+		switch ( $type ) {
+			case 'increase_fixed':
+				$price = $price + $value;
+				break;
+			case 'discount_fixed':
+				$price = $price - $value;
+				break;
+			case 'increase_percent':
+				$price = $price + ( $price * ( $value / 100 ) );
+				break;
+			case 'discount_percent':
+				$price = $price - ( $price * ( $value / 100 ) );
+				break;
+			case 'original':
+			default:
+				// لا تغيير.
+				break;
+		}
+
+		return max( 0, round( $price, wc_get_price_decimals() ) );
+	}
+
+	/* =====================================================================
+	 *  القسم السادس: واتساب (Green API)
+	 * ===================================================================== */
+
+	/**
+	 * الإعدادات الافتراضية لواتساب.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_whatsapp_default_settings() {
+		return array(
+			'enabled'            => 'no',
+			'api_url'            => 'https://api.green-api.com',
+			'id_instance'        => '',
+			'api_token'          => '',
+			'country_code'       => '20',
+			'admin_phone'        => '',
+			'link_preview'       => 'yes',
+			'on_thankyou'        => 'yes',
+			'on_status_change'   => 'yes',
+			'on_completed'       => 'yes',
+			'on_admin_new_order' => 'yes',
+			'on_add_to_cart'     => 'no',
+			'msg_thankyou'       => "مرحبًا {first_name} 🎉\nشكرًا لطلبك من {site_name}!\nرقم الطلب: #{order_number}\nالإجمالي: {order_total}\n\n{products_list}\n{addons_list}\n\nتتبع طلبك: {order_url}",
+			'msg_status_change'  => "أهلًا {first_name} 👋\nتم تحديث حالة طلبك #{order_number} إلى: {order_status}\n\n{site_name}",
+			'msg_completed'      => "أهلًا {first_name} ✨\nطلبك #{order_number} اكتمل بنجاح!\nنتمنى أن ينال إعجابك 🙏\n\n{site_name}",
+			'msg_admin_new'      => "🛒 طلب جديد #{order_number}\nالعميل: {customer_name}\nالهاتف: {billing_phone}\nالإجمالي: {order_total}\n\n{products_list}\n{addons_list}",
+			'msg_add_to_cart'    => "شكرًا {customer_name}! 🛍️\nأضفت منتجات إلى سلتك في {site_name}.\nأكمل طلبك من هنا: {cart_url}",
+			'statuses_notify'    => array( 'processing', 'completed', 'on-hold', 'cancelled' ),
+		);
+	}
+
+	/**
+	 * جلب إعدادات واتساب المخزّنة.
+	 *
+	 * @return array<string, mixed>
+	 */
+	private function get_whatsapp_settings() {
+		$stored = get_option( self::OPTION_WHATSAPP, array() );
+		if ( ! is_array( $stored ) ) {
+			$stored = array();
+		}
+		return wp_parse_args( $stored, $this->get_whatsapp_default_settings() );
+	}
+
+	/**
+	 * تسجيل صفحة إعدادات واتساب.
+	 *
+	 * @return void
+	 */
+	public function register_whatsapp_menu() {
+		add_submenu_page(
+			'woocommerce',
+			__( 'واتساب 3abar (Green API)', '3abar-wc-addons' ),
+			__( 'واتساب 3abar', '3abar-wc-addons' ),
+			'manage_woocommerce',
+			'3abar-wc-addons-whatsapp',
+			array( $this, 'render_whatsapp_settings_page' )
+		);
+	}
+
+	/**
+	 * تسجيل إعدادات واتساب.
+	 *
+	 * @return void
+	 */
+	public function register_whatsapp_settings() {
+		register_setting(
+			'3abar_wc_addons_whatsapp_group',
+			self::OPTION_WHATSAPP,
+			array( $this, 'sanitize_whatsapp_settings' )
+		);
+	}
+
+	/**
+	 * تنظيف إعدادات واتساب.
+	 *
+	 * @param array<string, mixed> $input القيم المرسلة.
+	 * @return array<string, mixed>
+	 */
+	public function sanitize_whatsapp_settings( $input ) {
+		$defaults = $this->get_whatsapp_default_settings();
+		$clean    = array();
+
+		$clean['enabled']            = ( ! empty( $input['enabled'] ) && 'yes' === $input['enabled'] ) ? 'yes' : 'no';
+		$clean['api_url']            = esc_url_raw( $input['api_url'] ?? $defaults['api_url'] );
+		$clean['id_instance']        = sanitize_text_field( $input['id_instance'] ?? '' );
+		$clean['api_token']          = sanitize_text_field( $input['api_token'] ?? '' );
+		$clean['country_code']       = preg_replace( '/\D+/', '', (string) ( $input['country_code'] ?? $defaults['country_code'] ) );
+		$clean['admin_phone']        = preg_replace( '/\D+/', '', (string) ( $input['admin_phone'] ?? '' ) );
+		$clean['link_preview']       = ( ! empty( $input['link_preview'] ) && 'yes' === $input['link_preview'] ) ? 'yes' : 'no';
+		$clean['on_thankyou']        = ( ! empty( $input['on_thankyou'] ) && 'yes' === $input['on_thankyou'] ) ? 'yes' : 'no';
+		$clean['on_status_change']   = ( ! empty( $input['on_status_change'] ) && 'yes' === $input['on_status_change'] ) ? 'yes' : 'no';
+		$clean['on_completed']       = ( ! empty( $input['on_completed'] ) && 'yes' === $input['on_completed'] ) ? 'yes' : 'no';
+		$clean['on_admin_new_order'] = ( ! empty( $input['on_admin_new_order'] ) && 'yes' === $input['on_admin_new_order'] ) ? 'yes' : 'no';
+		$clean['on_add_to_cart']     = ( ! empty( $input['on_add_to_cart'] ) && 'yes' === $input['on_add_to_cart'] ) ? 'yes' : 'no';
+
+		$text_fields = array( 'msg_thankyou', 'msg_status_change', 'msg_completed', 'msg_admin_new', 'msg_add_to_cart' );
+		foreach ( $text_fields as $field ) {
+			$clean[ $field ] = isset( $input[ $field ] ) ? sanitize_textarea_field( wp_unslash( $input[ $field ] ) ) : $defaults[ $field ];
+		}
+
+		$statuses = isset( $input['statuses_notify'] ) ? (array) $input['statuses_notify'] : array();
+		$clean['statuses_notify'] = array_values( array_filter( array_map( 'sanitize_key', $statuses ) ) );
+
+		return $clean;
+	}
+
+	/**
+	 * عرض صفحة إعدادات واتساب.
+	 *
+	 * @return void
+	 */
+	public function render_whatsapp_settings_page() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$s = $this->get_whatsapp_settings();
+		$wc_statuses = function_exists( 'wc_get_order_statuses' ) ? wc_get_order_statuses() : array();
+		$placeholders = '{customer_name}, {first_name}, {order_number}, {order_total}, {order_status}, {order_date}, {payment_method}, {shipping_method}, {products_list}, {addons_list}, {order_url}, {cart_url}, {site_name}, {site_url}, {billing_phone}, {billing_address}';
+		?>
+		<div class="wrap" dir="rtl">
+			<h1><?php esc_html_e( 'إعدادات واتساب — Green API', '3abar-wc-addons' ); ?></h1>
+			<p><?php esc_html_e( 'اربط متجرك بواتساب عبر green-api.com مع تحكم كامل في نصوص الرسائل وتفعيل كل حدث على حدة.', '3abar-wc-addons' ); ?></p>
+
+			<form method="post" action="options.php">
+				<?php settings_fields( '3abar_wc_addons_whatsapp_group' ); ?>
+
+				<h2><?php esc_html_e( 'الاتصال', '3abar-wc-addons' ); ?></h2>
+				<table class="form-table">
+					<tr>
+						<th><?php esc_html_e( 'تفعيل واتساب', '3abar-wc-addons' ); ?></th>
+						<td><label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[enabled]" value="yes" <?php checked( $s['enabled'], 'yes' ); ?> /> <?php esc_html_e( 'مفعّل', '3abar-wc-addons' ); ?></label></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'API URL', '3abar-wc-addons' ); ?></th>
+						<td><input type="url" class="regular-text" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[api_url]" value="<?php echo esc_attr( $s['api_url'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'idInstance', '3abar-wc-addons' ); ?></th>
+						<td><input type="text" class="regular-text" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[id_instance]" value="<?php echo esc_attr( $s['id_instance'] ); ?>" /></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'apiTokenInstance', '3abar-wc-addons' ); ?></th>
+						<td><input type="password" class="regular-text" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[api_token]" value="<?php echo esc_attr( $s['api_token'] ); ?>" autocomplete="new-password" /></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'كود الدولة الافتراضي', '3abar-wc-addons' ); ?></th>
+						<td><input type="text" class="small-text" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[country_code]" value="<?php echo esc_attr( $s['country_code'] ); ?>" /> <span class="description"><?php esc_html_e( 'مثال: 20 لمصر، 966 للسعودية', '3abar-wc-addons' ); ?></span></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'هاتف الإدارة', '3abar-wc-addons' ); ?></th>
+						<td><input type="text" class="regular-text" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[admin_phone]" value="<?php echo esc_attr( $s['admin_phone'] ); ?>" placeholder="01012345678" /></td>
+					</tr>
+					<tr>
+						<th><?php esc_html_e( 'معاينة الروابط', '3abar-wc-addons' ); ?></th>
+						<td><label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[link_preview]" value="yes" <?php checked( $s['link_preview'], 'yes' ); ?> /> <?php esc_html_e( 'تفعيل linkPreview في Green API', '3abar-wc-addons' ); ?></label></td>
+					</tr>
+				</table>
+
+				<h2><?php esc_html_e( 'تفعيل الأحداث', '3abar-wc-addons' ); ?></h2>
+				<table class="form-table">
+					<tr><td colspan="2">
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[on_thankyou]" value="yes" <?php checked( $s['on_thankyou'], 'yes' ); ?> /> <?php esc_html_e( 'رسالة تأكيد للعميل عند إتمام الطلب (صفحة الشكر)', '3abar-wc-addons' ); ?></label><br>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[on_status_change]" value="yes" <?php checked( $s['on_status_change'], 'yes' ); ?> /> <?php esc_html_e( 'إشعار العميل عند تغيير حالة الطلب', '3abar-wc-addons' ); ?></label><br>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[on_completed]" value="yes" <?php checked( $s['on_completed'], 'yes' ); ?> /> <?php esc_html_e( 'رسالة شكر عند اكتمال الطلب', '3abar-wc-addons' ); ?></label><br>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[on_admin_new_order]" value="yes" <?php checked( $s['on_admin_new_order'], 'yes' ); ?> /> <?php esc_html_e( 'تنبيه الإدارة بطلب جديد', '3abar-wc-addons' ); ?></label><br>
+						<label><input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[on_add_to_cart]" value="yes" <?php checked( $s['on_add_to_cart'], 'yes' ); ?> /> <?php esc_html_e( 'رسالة ترحيبية بعد إضافة حزمة للسلة (اختياري)', '3abar-wc-addons' ); ?></label>
+					</td></tr>
+					<tr>
+						<th><?php esc_html_e( 'حالات الطلب للإشعار', '3abar-wc-addons' ); ?></th>
+						<td>
+							<?php foreach ( $wc_statuses as $status_key => $status_label ) : ?>
+								<?php $key = str_replace( 'wc-', '', $status_key ); ?>
+								<label style="display:inline-block;margin:0 0 8px 16px;">
+									<input type="checkbox" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[statuses_notify][]" value="<?php echo esc_attr( $key ); ?>" <?php checked( in_array( $key, (array) $s['statuses_notify'], true ) ); ?> />
+									<?php echo esc_html( $status_label ); ?>
+								</label>
+							<?php endforeach; ?>
+						</td>
+					</tr>
+				</table>
+
+				<h2><?php esc_html_e( 'قوالب الرسائل', '3abar-wc-addons' ); ?></h2>
+				<p><code><?php echo esc_html( $placeholders ); ?></code></p>
+
+				<?php
+				$templates = array(
+					'msg_thankyou'      => __( 'رسالة تأكيد الطلب (للعميل)', '3abar-wc-addons' ),
+					'msg_status_change' => __( 'رسالة تغيير الحالة (للعميل)', '3abar-wc-addons' ),
+					'msg_completed'     => __( 'رسالة اكتمال الطلب (للعميل)', '3abar-wc-addons' ),
+					'msg_admin_new'     => __( 'تنبيه طلب جديد (للإدارة)', '3abar-wc-addons' ),
+					'msg_add_to_cart'   => __( 'رسالة بعد الإضافة للسلة', '3abar-wc-addons' ),
+				);
+				foreach ( $templates as $field => $label ) :
+					?>
+					<p><label for="<?php echo esc_attr( $field ); ?>"><strong><?php echo esc_html( $label ); ?></strong></label></p>
+					<textarea id="<?php echo esc_attr( $field ); ?>" name="<?php echo esc_attr( self::OPTION_WHATSAPP ); ?>[<?php echo esc_attr( $field ); ?>]" rows="6" class="large-text code"><?php echo esc_textarea( $s[ $field ] ); ?></textarea>
+				<?php endforeach; ?>
+
+				<?php submit_button( __( 'حفظ الإعدادات', '3abar-wc-addons' ) ); ?>
+			</form>
+
+			<hr>
+			<h2><?php esc_html_e( 'أفكار إضافية للربط مع العميل', '3abar-wc-addons' ); ?></h2>
+			<ul style="list-style:disc;margin-inline-start:20px;line-height:1.8">
+				<li><?php esc_html_e( 'رسالة تذكير بالسلة المهجورة (يمكن ربطها لاحقًا بـ Cron)', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'طلب تقييم بعد اكتمال الطلب بـ 3 أيام', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'إرسال رابط تتبع الشحن عند تغيير الحالة إلى "تم الشحن"', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'رسالة ترحيب للعميل الجديد عند أول طلب', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'إشعار الإدارة عند طلبات ذات قيمة عالية', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'إرسال تفاصيل الإضافات (الحزمة) بشكل منفصل في الرسالة', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'زر "تواصل عبر واتساب" في صفحة المنتج (يمكن إضافته لاحقًا)', '3abar-wc-addons' ); ?></li>
+				<li><?php esc_html_e( 'استقبال ردود العملاء عبر Webhook من Green API', '3abar-wc-addons' ); ?></li>
+			</ul>
+		</div>
+		<?php
+	}
+
+	/**
+	 * إرسال رسالة واتساب عبر Green API.
+	 *
+	 * @param string $phone   رقم الهاتف.
+	 * @param string $message نص الرسالة.
+	 * @return bool|WP_Error
+	 */
+	private function send_whatsapp_message( $phone, $message ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['enabled'] ) {
+			return false;
+		}
+		if ( empty( $settings['id_instance'] ) || empty( $settings['api_token'] ) || empty( $phone ) || '' === trim( $message ) ) {
+			return false;
+		}
+
+		$chat_id = $this->format_phone_for_green_api( $phone, $settings['country_code'] );
+		if ( ! $chat_id ) {
+			return false;
+		}
+
+		$api_url = trailingslashit( $settings['api_url'] ) . 'waInstance' . $settings['id_instance'] . '/sendMessage/' . $settings['api_token'];
+		$body    = array(
+			'chatId'  => $chat_id,
+			'message' => $message,
+		);
+		if ( 'yes' === $settings['link_preview'] ) {
+			$body['linkPreview'] = true;
+		}
+
+		$response = wp_remote_post(
+			$api_url,
+			array(
+				'timeout' => 20,
+				'headers' => array( 'Content-Type' => 'application/json' ),
+				'body'    => wp_json_encode( $body ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return $response;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		return $code >= 200 && $code < 300;
+	}
+
+	/**
+	 * تنسيق رقم الهاتف لصيغة Green API chatId.
+	 *
+	 * @param string $phone        رقم الهاتف.
+	 * @param string $country_code كود الدولة.
+	 * @return string
+	 */
+	private function format_phone_for_green_api( $phone, $country_code = '20' ) {
+		$digits = preg_replace( '/\D+/', '', (string) $phone );
+		if ( '' === $digits ) {
+			return '';
+		}
+		if ( '0' === substr( $digits, 0, 1 ) ) {
+			$digits = $country_code . substr( $digits, 1 );
+		}
+		return $digits . '@c.us';
+	}
+
+	/**
+	 * بناء سياق الرسالة من طلب WooCommerce.
+	 *
+	 * @param WC_Order $order الطلب.
+	 * @return array<string, string>
+	 */
+	private function build_order_message_context( $order ) {
+		$products = array();
+		$addons   = array();
+
+		foreach ( $order->get_items() as $item ) {
+			$line = $item->get_name() . ' × ' . $item->get_quantity();
+			$products[] = $line;
+
+			$addon_meta = $item->get_meta( __( 'المنتجات الإضافية', '3abar-wc-addons' ), true );
+			if ( $addon_meta ) {
+				$addons[] = $addon_meta;
+			}
+		}
+
+		return array(
+			'customer_name'    => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
+			'first_name'       => $order->get_billing_first_name(),
+			'order_number'     => $order->get_order_number(),
+			'order_total'      => wp_strip_all_tags( $order->get_formatted_order_total() ),
+			'order_status'     => wc_get_order_status_name( $order->get_status() ),
+			'order_date'       => wc_format_datetime( $order->get_date_created() ),
+			'payment_method'   => $order->get_payment_method_title(),
+			'shipping_method'  => $order->get_shipping_method(),
+			'products_list'    => implode( "\n", $products ),
+			'addons_list'      => ! empty( $addons ) ? __( 'الإضافات:', '3abar-wc-addons' ) . "\n" . implode( "\n", $addons ) : '',
+			'order_url'        => $order->get_view_order_url(),
+			'cart_url'         => wc_get_cart_url(),
+			'site_name'        => get_bloginfo( 'name' ),
+			'site_url'         => home_url( '/' ),
+			'billing_phone'    => $order->get_billing_phone(),
+			'billing_address'  => trim( preg_replace( '/\s+/', ' ', $order->get_formatted_billing_address() ) ),
+		);
+	}
+
+	/**
+	 * استبدال المتغيرات في قالب الرسالة.
+	 *
+	 * @param string               $template القالب.
+	 * @param array<string,string> $context  السياق.
+	 * @return string
+	 */
+	private function replace_message_placeholders( $template, array $context ) {
+		$search  = array();
+		$replace = array();
+		foreach ( $context as $key => $value ) {
+			$search[]  = '{' . $key . '}';
+			$replace[] = (string) $value;
+		}
+		return str_replace( $search, $replace, $template );
+	}
+
+	/**
+	 * رسالة واتساب عند صفحة الشكر.
+	 *
+	 * @param int $order_id معرّف الطلب.
+	 * @return void
+	 */
+	public function whatsapp_on_thankyou( $order_id ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['on_thankyou'] ) {
+			return;
+		}
+		$order = wc_get_order( $order_id );
+		if ( ! $order || $order->get_meta( '_3abar_wa_thankyou_sent' ) ) {
+			return;
+		}
+		$phone = $order->get_billing_phone();
+		if ( ! $phone ) {
+			return;
+		}
+		$message = $this->replace_message_placeholders( $settings['msg_thankyou'], $this->build_order_message_context( $order ) );
+		if ( $this->send_whatsapp_message( $phone, $message ) ) {
+			$order->update_meta_data( '_3abar_wa_thankyou_sent', 'yes' );
+			$order->save();
+		}
+	}
+
+	/**
+	 * إشعار العميل عند تغيير حالة الطلب.
+	 *
+	 * @param int      $order_id   معرّف الطلب.
+	 * @param string   $old_status الحالة السابقة.
+	 * @param string   $new_status الحالة الجديدة.
+	 * @param WC_Order $order      الطلب.
+	 * @return void
+	 */
+	public function whatsapp_on_status_change( $order_id, $old_status, $new_status, $order ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['on_status_change'] ) {
+			return;
+		}
+		if ( ! in_array( $new_status, (array) $settings['statuses_notify'], true ) ) {
+			return;
+		}
+		if ( ! $order instanceof WC_Order ) {
+			$order = wc_get_order( $order_id );
+		}
+		if ( ! $order ) {
+			return;
+		}
+		$phone = $order->get_billing_phone();
+		if ( ! $phone ) {
+			return;
+		}
+		$context = $this->build_order_message_context( $order );
+		$message = $this->replace_message_placeholders( $settings['msg_status_change'], $context );
+		$this->send_whatsapp_message( $phone, $message );
+	}
+
+	/**
+	 * رسالة اكتمال الطلب.
+	 *
+	 * @param int $order_id معرّف الطلب.
+	 * @return void
+	 */
+	public function whatsapp_on_order_completed( $order_id ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['on_completed'] ) {
+			return;
+		}
+		$order = wc_get_order( $order_id );
+		if ( ! $order || $order->get_meta( '_3abar_wa_completed_sent' ) ) {
+			return;
+		}
+		$phone = $order->get_billing_phone();
+		if ( ! $phone ) {
+			return;
+		}
+		$message = $this->replace_message_placeholders( $settings['msg_completed'], $this->build_order_message_context( $order ) );
+		if ( $this->send_whatsapp_message( $phone, $message ) ) {
+			$order->update_meta_data( '_3abar_wa_completed_sent', 'yes' );
+			$order->save();
+		}
+	}
+
+	/**
+	 * تنبيه الإدارة بطلب جديد.
+	 *
+	 * @param int      $order_id معرّف الطلب.
+	 * @param WC_Order $order    الطلب.
+	 * @return void
+	 */
+	public function whatsapp_notify_admin_new_order( $order_id, $order = null ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['on_admin_new_order'] || empty( $settings['admin_phone'] ) ) {
+			return;
+		}
+		if ( ! $order instanceof WC_Order ) {
+			$order = wc_get_order( $order_id );
+		}
+		if ( ! $order || $order->get_meta( '_3abar_wa_admin_notified' ) ) {
+			return;
+		}
+		$message = $this->replace_message_placeholders( $settings['msg_admin_new'], $this->build_order_message_context( $order ) );
+		if ( $this->send_whatsapp_message( $settings['admin_phone'], $message ) ) {
+			$order->update_meta_data( '_3abar_wa_admin_notified', 'yes' );
+			$order->save();
+		}
+	}
+
+	/**
+	 * رسالة اختيارية بعد إضافة حزمة للسلة.
+	 *
+	 * @param int   $product_id معرّف المنتج.
+	 * @param int   $quantity   الكمية.
+	 * @param int[] $addons     الإضافات.
+	 * @return void
+	 */
+	private function maybe_send_whatsapp_after_add_to_cart( $product_id, $quantity, array $addons ) {
+		$settings = $this->get_whatsapp_settings();
+		if ( 'yes' !== $settings['on_add_to_cart'] ) {
+			return;
+		}
+
+		$phone = '';
+		if ( is_user_logged_in() ) {
+			$user_id = get_current_user_id();
+			$phone   = get_user_meta( $user_id, 'billing_phone', true );
+		}
+		if ( ! $phone ) {
+			return;
+		}
+
+		$product_names = array();
+		foreach ( $addons as $addon_id ) {
+			$p = wc_get_product( $addon_id );
+			if ( $p ) {
+				$product_names[] = $p->get_name();
+			}
+		}
+		$main = wc_get_product( $product_id );
+
+		$context = array(
+			'customer_name'   => wp_get_current_user()->display_name,
+			'first_name'      => wp_get_current_user()->first_name,
+			'products_list'   => ( $main ? $main->get_name() : '' ) . ( $quantity > 1 ? ' × ' . $quantity : '' ),
+			'addons_list'     => ! empty( $product_names ) ? implode( "\n", $product_names ) : '',
+			'cart_url'        => wc_get_cart_url(),
+			'site_name'       => get_bloginfo( 'name' ),
+			'site_url'        => home_url( '/' ),
+			'order_number'    => '',
+			'order_total'     => '',
+			'order_status'    => '',
+			'order_date'      => '',
+			'payment_method'  => '',
+			'shipping_method' => '',
+			'order_url'       => wc_get_cart_url(),
+			'billing_phone'   => $phone,
+			'billing_address' => '',
+		);
+
+		$message = $this->replace_message_placeholders( $settings['msg_add_to_cart'], $context );
+		$this->send_whatsapp_message( $phone, $message );
+	}
+
+	/* =====================================================================
+	 *  القسم السابع: الأنماط والسكربتات (CSS / JS)
+	 * ===================================================================== */
+
+	/**
+	 * أنماط لوحة التحكم (Meta Box).
+	 *
+	 * @return string
+	 */
+	private function admin_css() {
+		return '
+		.threeabar-metabox{padding:6px 2px;font-family:inherit}
+		.threeabar-mb-header{display:flex;align-items:center;gap:14px;padding:16px 18px;margin:-6px -2px 18px;border-radius:14px;background:linear-gradient(120deg,#1a1206 0%,#3a2a0c 55%,#5a4209 100%);color:#f4c453;box-shadow:0 10px 30px -12px rgba(74,52,9,.7);border:1px solid #e0a73c}
+		.threeabar-mb-badge{font-weight:800;letter-spacing:1px;background:linear-gradient(120deg,#b97e16,#f4c453);color:#1a1206;padding:8px 14px;border-radius:10px;border:1px solid rgba(244,196,83,.5)}
+		.threeabar-mb-desc{margin:0;opacity:.95;font-size:13px;line-height:1.7;color:#f3ead3}
+		.threeabar-mb-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+		.threeabar-field{display:flex;flex-direction:column;gap:7px;background:#fff;border:1px solid #f0e6cf;border-radius:12px;padding:14px 16px;transition:.25s box-shadow,.25s transform}
+		.threeabar-field:hover{box-shadow:0 8px 24px -14px rgba(184,128,28,.45);transform:translateY(-1px)}
+		.threeabar-field label{font-weight:700;color:#5a4209;font-size:13px}
+		.threeabar-field small{color:#9c8f6e;font-size:11.5px;line-height:1.6}
+		.threeabar-field input[type=number]{border-radius:9px;border:1.5px solid #f0e6cf;padding:9px 11px;font-size:14px;outline:none;transition:.2s}
+		.threeabar-field input[type=number]:focus{border-color:#e0a73c;box-shadow:0 0 0 3px rgba(224,167,60,.18)}
+		.threeabar-metabox .select2-container--default .select2-selection--multiple,
+		.threeabar-metabox .select2-container--default .select2-selection--single{border-radius:9px!important;border:1.5px solid #f0e6cf!important;min-height:40px}
+		.threeabar-metabox .select2-container--default.select2-container--focus .select2-selection--multiple{border-color:#e0a73c!important}
+		.threeabar-metabox .select2-container--default .select2-selection--multiple .select2-selection__choice{background:linear-gradient(120deg,#b97e16,#e0a73c)!important;border:none!important;color:#1a1206!important;font-weight:700;border-radius:7px!important;padding:3px 9px!important}
+		@media(max-width:782px){.threeabar-mb-grid{grid-template-columns:1fr}}
+		';
+	}
+
+	/**
+	 * سكربت لوحة التحكم (تهيئة Select2 + إظهار/إخفاء حقل القيمة).
+	 *
+	 * @return string
+	 */
+	private function admin_js() {
+		$ajax_url = admin_url( 'admin-ajax.php' );
+		ob_start();
+		?>
+		(function($){
+			$(function(){
+				// تهيئة Select2 للتصنيفات.
+				if ($.fn.selectWoo){
+					$('.threeabar-select2-cats, .threeabar-price-type').selectWoo();
+
+					// Select2 للمنتجات مع بحث Ajax مدمج بـ WooCommerce.
+					$('.threeabar-select2-products').selectWoo({
+						ajax:{
+							url: '<?php echo esc_js( $ajax_url ); ?>',
+							dataType:'json',
+							delay:250,
+							data:function(params){
+								return {
+									term: params.term,
+									action:'woocommerce_json_search_products_and_variations',
+									security: '<?php echo esc_js( wp_create_nonce( 'search-products' ) ); ?>'
+								};
+							},
+							processResults:function(data){
+								var results = [];
+								if (data){
+									$.each(data, function(id, text){
+										results.push({id:id, text:text});
+									});
+								}
+								return {results:results};
+							},
+							cache:true
+						},
+						minimumInputLength:1
+					});
+				}
+
+				// إظهار/إخفاء حقل قيمة السعر حسب النوع.
+				function toggleValue(){
+					var t = $('#3abar_addon_price_type').val();
+					if (t === 'original'){
+						$('.threeabar-price-value-wrap').slideUp(150);
+					} else {
+						$('.threeabar-price-value-wrap').slideDown(150);
+					}
+				}
+				$('#3abar_addon_price_type').on('change', toggleValue);
+			});
+		})(jQuery);
+		<?php
+		return ob_get_clean();
+	}
+
+	/**
+	 * أنماط الواجهة الأمامية (الزر + النافذة المنبثقة) بتصميم حديث وخيالي.
+	 *
+	 * @return string
+	 */
+	private function frontend_css() {
+		return '
+		/* ====== الزر المخصص ====== */
+		.threeabar-cta-wrap{margin:18px 0}
+		.threeabar-qty-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+		.threeabar-qty-label{font-weight:700;color:#5a4209;font-size:14px}
+		.threeabar-qty-row .quantity .qty{border-radius:10px;border:2px solid #f0e6cf;padding:8px 10px;min-width:64px}
+		.threeabar-open-modal{position:relative;display:inline-flex!important;align-items:center;gap:12px;border:none!important;cursor:pointer;color:#1a1206!important;font-weight:800!important;font-size:17px!important;padding:16px 34px!important;border-radius:16px!important;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%)!important;box-shadow:0 16px 34px -14px rgba(184,128,28,.85);transition:transform .25s,box-shadow .25s,filter .25s}
+		.threeabar-open-modal:hover{transform:translateY(-2px);box-shadow:0 20px 40px -16px rgba(224,167,60,.9);filter:brightness(1.04)}
+		.threeabar-cta-icon{font-size:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.2))}
+		/* حالة التعطيل عند وجود لون إجباري غير مختار */
+		.threeabar-open-modal.is-disabled{opacity:.5;filter:grayscale(.35);cursor:not-allowed;box-shadow:none}
+		.threeabar-open-modal.is-disabled:hover{transform:none;filter:grayscale(.35)}
+		/* اهتزاز تنبيهي لبند اللون */
+		.threeabar-shake{animation:threeabarShake .5s}
+		@keyframes threeabarShake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
+		/* نسخة مصغّرة للزر داخل قوائم المنتجات (Catalog) */
+		.threeabar-loop-btn{display:inline-flex!important;align-items:center;gap:8px;padding:10px 18px!important;font-size:14px!important;border-radius:12px!important;box-shadow:0 10px 22px -12px rgba(184,128,28,.85)}
+		.threeabar-loop-btn .threeabar-cta-icon{font-size:16px}
+
+		/* ====== الخلفية والنافذة ====== */
+		.threeabar-modal-overlay{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(20,15,6,.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;transition:opacity .3s}
+		.threeabar-modal-overlay.is-open{display:flex;opacity:1}
+		.threeabar-modal{position:relative;width:100%;max-width:680px;max-height:88vh;display:flex;flex-direction:column;background:linear-gradient(180deg,#ffffff 0%,#fffaf0 100%);border-radius:24px;box-shadow:0 40px 90px -30px rgba(74,52,9,.65);overflow:hidden;transform:translateY(28px) scale(.96);opacity:0;transition:transform .35s cubic-bezier(.2,.9,.3,1.2),opacity .35s;direction:rtl}
+		.threeabar-modal-overlay.is-open .threeabar-modal{transform:translateY(0) scale(1);opacity:1}
+		.threeabar-modal-glow{position:absolute;top:-120px;inset-inline-end:-120px;width:280px;height:280px;border-radius:50%;background:radial-gradient(circle,rgba(244,196,83,.5),transparent 65%);pointer-events:none;filter:blur(8px)}
+
+		/* ====== الهيدر ====== */
+		.threeabar-modal-head{position:relative;display:flex;align-items:center;justify-content:space-between;padding:22px 26px;background:linear-gradient(120deg,#1a1206 0%,#3a2a0c 55%,#5a4209 100%);color:#f4c453;border-bottom:2px solid #e0a73c}
+		.threeabar-modal-head h3{margin:0;font-size:21px;font-weight:800;color:#f4c453;text-shadow:0 1px 2px rgba(0,0,0,.4)}
+		.threeabar-modal-close{background:rgba(244,196,83,.18);border:1px solid rgba(244,196,83,.4);color:#f4c453;width:38px;height:38px;border-radius:50%;font-size:24px;line-height:1;cursor:pointer;transition:.2s}
+		.threeabar-modal-close:hover{background:rgba(244,196,83,.35);transform:rotate(90deg)}
+
+		/* ====== البحث ====== */
+		.threeabar-search-bar{position:relative;padding:18px 26px 6px}
+		.threeabar-search-icon{position:absolute;inset-inline-start:40px;top:50%;transform:translateY(-30%);font-size:16px;opacity:.6}
+		.threeabar-search-input{width:100%;padding:14px 46px;border:2px solid #f0e6cf;border-radius:14px;font-size:15px;outline:none;transition:.2s;background:#fff}
+		.threeabar-search-input:focus{border-color:#e0a73c;box-shadow:0 0 0 4px rgba(224,167,60,.18)}
+
+		/* ====== الجسم والنتائج ====== */
+		.threeabar-modal-body{flex:1;overflow-y:auto;padding:10px 26px 18px}
+		.threeabar-modal-body::-webkit-scrollbar{width:9px}
+		.threeabar-modal-body::-webkit-scrollbar-thumb{background:#e8cf94;border-radius:8px}
+		.threeabar-results{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:8px}
+		.threeabar-card{position:relative;display:flex;gap:13px;align-items:center;padding:13px;border:2px solid #f2e8d0;border-radius:16px;background:#fff;cursor:pointer;transition:transform .2s,border-color .2s,box-shadow .2s;outline:none}
+		.threeabar-card:hover,.threeabar-card:focus-visible{transform:translateY(-2px);border-color:#e8c878;box-shadow:0 12px 26px -16px rgba(184,128,28,.6)}
+		.threeabar-card.is-selected{border-color:#e0a73c;background:linear-gradient(180deg,#fffaf0,#fdf3da);box-shadow:0 12px 30px -14px rgba(224,167,60,.6)}
+		.threeabar-card.is-selected:after{content:"\2713";position:absolute;top:9px;inset-inline-start:9px;width:24px;height:24px;border-radius:50%;background:linear-gradient(120deg,#b97e16,#e0a73c);color:#1a1206;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;box-shadow:0 4px 10px -3px rgba(184,128,28,.7)}
+		.threeabar-card img{width:64px;height:64px;object-fit:cover;border-radius:12px;flex:0 0 64px;background:#faf3e2}
+		.threeabar-card-info{flex:1;min-width:0}
+		.threeabar-card-name{margin:0 0 5px;font-size:14px;font-weight:700;color:#3a2a0c;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+		.threeabar-card-price{font-size:14px;font-weight:800;color:#b97e16}
+		.threeabar-card-price del{color:#bcae8e;font-weight:500;font-size:12px;margin-inline-start:6px}
+		.threeabar-price-wrap{display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+		.threeabar-price-current{font-weight:800;color:#b97e16;font-size:15px}
+		.threeabar-price-orig del{color:#bcae8e;font-weight:500;font-size:12px}
+		.threeabar-price-badge{display:inline-block;background:linear-gradient(120deg,#1f6b41,#2c7a4d);color:#fff;font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px}
+		.threeabar-price-note{font-size:11px;color:#9c8f6e;font-weight:600}
+		.threeabar-card-qty{display:flex;align-items:center;gap:6px;margin-top:6px}
+		.threeabar-card-qty-btn{width:28px;height:28px;border:1px solid #e0a73c;border-radius:8px;background:#fff;color:#5a4209;font-weight:800;cursor:pointer;line-height:1}
+		.threeabar-card-qty-btn:hover{background:#fdf3da}
+		.threeabar-card-qty-count{min-width:22px;text-align:center;font-weight:800;color:#8a5a12;font-size:13px}
+		.threeabar-card.is-picked{border-color:#e0a73c;background:linear-gradient(180deg,#fffaf0,#fdf3da)}
+		.threeabar-card input{position:absolute;opacity:0;pointer-events:none}
+
+		/* حالات فارغة/تحميل */
+		.threeabar-state{grid-column:1/-1;text-align:center;padding:40px 10px;color:#9c8f6e;font-size:15px}
+		.threeabar-spinner{width:42px;height:42px;margin:0 auto 14px;border:4px solid #f3ead3;border-top-color:#e0a73c;border-radius:50%;animation:threeabarSpin .8s linear infinite}
+		@keyframes threeabarSpin{to{transform:rotate(360deg)}}
+
+		/* ====== الفوتر ====== */
+		.threeabar-modal-foot{display:flex;flex-direction:column;gap:12px;padding:18px 26px;border-top:1px solid #f0e6cf;background:#fff}
+		.threeabar-modal-foot-top{display:flex;align-items:center;gap:16px;width:100%}
+		.threeabar-selection-info{font-weight:800;color:#8a5a12;font-size:16px;background:#fdf3da;padding:10px 16px;border-radius:12px;min-width:64px;text-align:center}
+		.threeabar-selected-sep{opacity:.4;margin:0 2px}
+		.threeabar-selected-chips{display:flex;flex-wrap:wrap;gap:8px;max-height:88px;overflow-y:auto}
+		.threeabar-sel-chip{display:inline-flex;align-items:center;gap:6px;background:#fff;border:1px solid #efdcae;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700;color:#4a3409}
+		.threeabar-sel-chip button{border:none;background:transparent;color:#b97e16;font-size:16px;cursor:pointer;line-height:1;padding:0 2px}
+		.threeabar-confirm-btn{flex:1;position:relative;border:none;cursor:pointer;color:#1a1206;font-weight:800;font-size:17px;padding:16px;border-radius:14px;background:linear-gradient(120deg,#b97e16 0%,#e0a73c 50%,#f4c453 100%);box-shadow:0 14px 30px -12px rgba(184,128,28,.8);transition:transform .2s,box-shadow .2s,opacity .2s;display:flex;align-items:center;justify-content:center;gap:10px;width:100%}
+		.threeabar-confirm-btn:hover:not(:disabled){transform:translateY(-2px);box-shadow:0 20px 40px -12px rgba(224,167,60,.9)}
+		.threeabar-confirm-btn:disabled{opacity:.45;cursor:not-allowed}
+		.threeabar-confirm-btn.is-loading .threeabar-confirm-text{opacity:.5}
+		.threeabar-confirm-spinner{display:none;width:20px;height:20px;border:3px solid rgba(26,18,6,.35);border-top-color:#1a1206;border-radius:50%;animation:threeabarSpin .7s linear infinite}
+		.threeabar-confirm-btn.is-loading .threeabar-confirm-spinner{display:inline-block}
+
+		/* ====== التجاوب ====== */
+		@media(max-width:600px){
+			.threeabar-results{grid-template-columns:1fr}
+			.threeabar-modal{max-height:92vh;border-radius:20px}
+			.threeabar-modal-head h3{font-size:18px}
+			.threeabar-open-modal{width:100%;justify-content:center}
+		}
+		';
+	}
+
+	/**
+	 * أنماط صفحة السلة/الدفع: إظهار المنتجات الإضافية كعناصر فرعية متداخلة.
+	 *
+	 * @return string
+	 */
+	private function cart_css() {
+		return '
+		/* صف الحزمة يظهر كبطاقة واحدة أنيقة */
+		.threeabar-bundle-row td{background:linear-gradient(180deg,#fffdf8,#fff6e4)!important;border-top:2px solid #ecd79e!important;border-bottom:2px solid #ecd79e!important}
+		.threeabar-bundle-row td:first-child{border-inline-start:5px solid #e0a73c!important}
+		.threeabar-bundle-row td.product-name{padding-block:18px!important}
+		.threeabar-bundle{display:flex;flex-direction:column;gap:12px}
+
+		.threeabar-bundle-top{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+		.threeabar-bundle-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(120deg,#7a5210,#c8881f);color:#fff;font-weight:800;font-size:12px;padding:5px 12px;border-radius:30px;box-shadow:0 6px 14px -6px rgba(122,82,16,.7);letter-spacing:.3px}
+		.threeabar-bundle-main-name,.threeabar-bundle-main-name a{font-weight:800;color:#2e2106!important;font-size:15.5px;text-decoration:none}
+		.threeabar-bundle-main-name{flex:1;min-width:120px}
+		.threeabar-bundle-main-price{font-weight:800;background:linear-gradient(120deg,#8a5a12,#c8881f);padding:5px 13px;border-radius:10px;font-size:13.5px;white-space:nowrap;box-shadow:0 6px 14px -8px rgba(184,128,28,.85)}
+		.threeabar-bundle-main-price,.threeabar-bundle-main-price *{color:#fff!important;text-shadow:0 1px 1px rgba(0,0,0,.25)}
+
+		.threeabar-bundle-addons{position:relative;padding:12px 14px;background:rgba(255,255,255,.65);border:1px dashed #e3c98a;border-radius:14px}
+		.threeabar-bundle-addons-label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:800;color:#9a6f15;text-transform:uppercase;letter-spacing:.4px;margin-bottom:10px}
+		.threeabar-spark{color:#e0a73c}
+		.threeabar-bundle-chips{display:flex;flex-direction:column;gap:8px}
+		.threeabar-addon-chip{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,#ffffff,#fff8ea);border:1px solid #efdcae;border-radius:12px;padding:7px 10px;transition:transform .2s,box-shadow .2s}
+		.threeabar-addon-chip:hover{transform:translateX(-3px);box-shadow:0 8px 18px -12px rgba(184,128,28,.6)}
+		.threeabar-chip-thumb img{width:38px;height:38px;border-radius:9px;object-fit:cover;display:block;margin:0!important;box-shadow:0 2px 6px -3px rgba(0,0,0,.3)}
+		.threeabar-chip-name{flex:1;font-weight:700;color:#4a3409;font-size:13px}
+		.threeabar-chip-price{font-weight:800;background:linear-gradient(120deg,#1f6b41,#2c7a4d);padding:4px 11px;border-radius:20px;font-size:12px;white-space:nowrap}
+		.threeabar-chip-price,.threeabar-chip-price *{color:#fff!important;text-shadow:0 1px 1px rgba(0,0,0,.2)}
+
+		.threeabar-bundle-foot{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#a8986f;font-style:italic}
+		.threeabar-bundle-foot:before{content:"\2714";color:#3a9a63;font-style:normal;font-weight:800}
+		.threeabar-bundle-qty-note{display:block;margin-top:4px;font-size:11px;color:#a8986f}
+
+		/* عرض اللون (من بلاجن الألوان) داخل تفاصيل العنصر */
+		.threeabar-bundle-row .variation,
+		.threeabar-bundle-row .wc-item-meta{margin-top:6px}
+
+		/* دعم سلة البلوكات (Block Cart) */
+		.wc-block-cart-items__row.threeabar-bundle-row{background:linear-gradient(180deg,#fffdf8,#fff6e4)}
+
+		@media(max-width:768px){
+			.threeabar-bundle{gap:10px}
+			.threeabar-bundle-top{gap:8px}
+			.threeabar-bundle-main-name{font-size:14px;min-width:90px;flex:1 1 100%}
+			.threeabar-bundle-addons{padding:10px 11px}
+			.threeabar-addon-chip{gap:8px;padding:6px 8px}
+			.threeabar-chip-thumb img{width:34px;height:34px}
+			.threeabar-chip-name{font-size:12.5px}
+			.threeabar-chip-price{font-size:11px;padding:3px 9px}
+		}
+		';
+	}
+
+	/**
+	 * سكربت الواجهة الأمامية (فتح النافذة + بحث حي + اختيار + إضافة للسلة).
+	 *
+	 * @return string
+	 */
+	private function frontend_js() {
+		ob_start();
+		?>
+		(function($){
+			'use strict';
+			var cfg = window.ThreeAbarAddons || {};
+			var $overlay, $modal, $results, $search, $confirm, $count, $maxEl, $chips;
+			var state = { productId:0, max:1, required:false, selected:[], itemMap:{}, searchTimer:null, lastTerm:null, parentQty:1 };
+
+			$(function(){
+				$overlay = $('#threeabarModal');
+				if (!$overlay.length){ return; }
+				$modal   = $overlay.find('.threeabar-modal');
+				$results = $overlay.find('.threeabar-results');
+				$search  = $overlay.find('.threeabar-search-input');
+				$confirm = $overlay.find('.threeabar-confirm-btn');
+				$count   = $overlay.find('.threeabar-selected-count');
+				$maxEl   = $overlay.find('.threeabar-selected-max');
+				$chips   = $('#threeabarSelectedChips');
+
+				bindEvents();
+			});
+
+			function bindEvents(){
+				// فتح النافذة من الزر المخصص (مع منع الفتح لو اللون الإجباري غير مختار).
+				$(document).on('click', '.threeabar-open-modal', function(){
+					if (colorRequiredMissing()){
+						promptColor();
+						return;
+					}
+					state.productId = parseInt($(this).data('product-id'), 10) || 0;
+					state.max       = parseInt($(this).data('max'), 10) || 1;
+					state.required  = parseInt($(this).data('required'), 10) === 1;
+					state.selected  = [];
+					state.itemMap   = {};
+					state.parentQty = parseInt($('.threeabar-cta-wrap[data-product-id="'+ state.productId +'"] .qty').val(), 10) || 1;
+					openModal();
+				});
+
+				// مزامنة حالة الزر مع اختيار اللون الإجباري.
+				$(document.body).on('threeabar_color_changed', refreshCtaState);
+				refreshCtaState();
+
+				// إغلاق النافذة.
+				$overlay.on('click', '.threeabar-modal-close', closeModal);
+				$overlay.on('click', function(e){ if (e.target === this){ closeModal(); } });
+				$(document).on('keydown', function(e){ if (e.key === 'Escape'){ closeModal(); } });
+
+				// البحث الحي (debounced).
+				$search.on('input', function(){
+					var term = $.trim($(this).val());
+					clearTimeout(state.searchTimer);
+					state.searchTimer = setTimeout(function(){ fetchAddons(term); }, 280);
+				});
+
+				// اختيار/إضافة بطاقة.
+				$results.on('click', '.threeabar-card', function(e){
+					if ($(e.target).closest('.threeabar-card-qty-btn').length){ return; }
+					addSelection(parseInt($(this).data('id'), 10));
+				});
+				$results.on('click', '.threeabar-card-qty-btn', function(e){
+					e.preventDefault();
+					e.stopPropagation();
+					var id = parseInt($(this).closest('.threeabar-card').data('id'), 10);
+					if ($(this).hasClass('is-plus')){ addSelection(id); }
+					else { removeOneSelection(id); }
+				});
+
+				$chips.on('click', '.threeabar-sel-chip-remove', function(){
+					removeOneSelection(parseInt($(this).data('id'), 10));
+				});
+
+				// دعم لوحة المفاتيح (Enter / Space) للوصولية.
+				$results.on('keydown', '.threeabar-card', function(e){
+					if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar'){
+						e.preventDefault();
+						addSelection(parseInt($(this).data('id'), 10));
+					}
+				});
+
+				// تأكيد الإضافة للسلة.
+				$confirm.on('click', addToCart);
+			}
+
+			// هل يوجد لون إجباري لم يُختر بعد؟ (من بلاجن الألوان)
+			function colorRequiredMissing(){
+				var $w = $('.threeabar-colors-wrap');
+				return $w.length && $w.data('required') == 1 && !$w.find('.threeabar-color-input').val();
+			}
+
+			// تعطيل/تفعيل زر "اختر الإضافات" حسب اختيار اللون الإجباري.
+			function refreshCtaState(){
+				var miss = colorRequiredMissing();
+				$('.threeabar-open-modal').toggleClass('is-disabled', !!miss).attr('aria-disabled', miss ? 'true' : 'false');
+			}
+
+			// إشعار بضرورة اختيار اللون أولًا + تمرير إليه.
+			function promptColor(){
+				flash(cfg.i18n ? cfg.i18n.chooseColor : '');
+				var $w = $('.threeabar-colors-wrap');
+				if ($w.length){
+					$('html,body').animate({ scrollTop: $w.offset().top - 120 }, 400);
+					$w.addClass('threeabar-shake');
+					setTimeout(function(){ $w.removeClass('threeabar-shake'); }, 600);
+				}
+			}
+
+			function openModal(){
+				$maxEl.text(state.max);
+				$count.text(0);
+				$search.val('');
+				updateConfirm();
+				$overlay.addClass('is-open').attr('aria-hidden','false');
+				$('body').css('overflow','hidden');
+				fetchAddons('');
+				setTimeout(function(){ $search.trigger('focus'); }, 350);
+			}
+
+			function closeModal(){
+				$overlay.removeClass('is-open').attr('aria-hidden','true');
+				$('body').css('overflow','');
+			}
+
+			function setState(html){
+				$results.html('<div class="threeabar-state">'+ html +'</div>');
+			}
+
+			function fetchAddons(term){
+				state.lastTerm = term;
+				setState('<div class="threeabar-spinner"></div>'+ (cfg.i18n ? cfg.i18n.loading : ''));
+				$.ajax({
+					url: cfg.ajaxUrl,
+					method:'POST',
+					dataType:'json',
+					data:{
+						action:'3abar_search_addons',
+						nonce: cfg.nonce,
+						product_id: state.productId,
+						search: term
+					}
+				}).done(function(res){
+					if (term !== state.lastTerm){ return; } // تجاهل النتائج القديمة.
+					if (res && res.success && res.data.items.length){
+						renderItems(res.data.items);
+					} else {
+						setState(cfg.i18n ? cfg.i18n.noResults : 'No results');
+					}
+				}).fail(function(){
+					setState(cfg.i18n ? cfg.i18n.error : 'Error');
+				});
+			}
+
+			function renderItems(items){
+				var html = '';
+				items.forEach(function(it){
+					state.itemMap[it.id] = it;
+					var picked = countForId(it.id);
+					var pickedClass = picked > 0 ? ' is-picked' : '';
+					var qtyControls = '';
+					if (state.max > 1){
+						qtyControls = '<div class="threeabar-card-qty">'+
+							'<button type="button" class="threeabar-card-qty-btn is-minus" aria-label="'+ (cfg.i18n ? cfg.i18n.removeOne : '') +'">−</button>'+
+							'<span class="threeabar-card-qty-count">'+ picked +'</span>'+
+							'<button type="button" class="threeabar-card-qty-btn is-plus" aria-label="'+ (cfg.i18n ? cfg.i18n.addOne : '') +'">+</button>'+
+						'</div>';
+					}
+					html += ''+
+					'<div class="threeabar-card'+ pickedClass +'" data-id="'+ it.id +'" role="button" tabindex="0" aria-pressed="'+ (picked>0?'true':'false') +'">'+
+						'<img src="'+ it.image +'" alt="" loading="lazy" />'+
+						'<div class="threeabar-card-info">'+
+							'<p class="threeabar-card-name">'+ escapeHtml(it.name) +'</p>'+
+							'<div class="threeabar-card-price">'+ it.price_html +'</div>'+
+							qtyControls +
+						'</div>'+
+					'</div>';
+				});
+				$results.html(html);
+				updateConfirm();
+			}
+
+			function countForId(id){
+				var c = 0;
+				state.selected.forEach(function(sid){ if (sid === id){ c++; } });
+				return c;
+			}
+
+			function addSelection(id){
+				if (!id){ return; }
+				if (state.max <= 1){
+					state.selected = [id];
+					$results.find('.threeabar-card').removeClass('is-picked').attr('aria-pressed','false');
+					$results.find('.threeabar-card[data-id="'+ id +'"]').addClass('is-picked').attr('aria-pressed','true');
+					$results.find('.threeabar-card-qty-count').text('0');
+					$results.find('.threeabar-card[data-id="'+ id +'"] .threeabar-card-qty-count').text('1');
+				} else {
+					if (state.selected.length >= state.max){
+						flash(cfg.i18n ? cfg.i18n.maxReached : '');
+						return;
+					}
+					state.selected.push(id);
+					var $card = $results.find('.threeabar-card[data-id="'+ id +'"]');
+					$card.addClass('is-picked').attr('aria-pressed','true');
+					$card.find('.threeabar-card-qty-count').text(countForId(id));
+				}
+				updateConfirm();
+			}
+
+			function removeOneSelection(id){
+				var idx = state.selected.lastIndexOf(id);
+				if (idx === -1){ return; }
+				state.selected.splice(idx, 1);
+				var picked = countForId(id);
+				var $card = $results.find('.threeabar-card[data-id="'+ id +'"]');
+				$card.toggleClass('is-picked', picked > 0).attr('aria-pressed', picked > 0 ? 'true' : 'false');
+				$card.find('.threeabar-card-qty-count').text(picked);
+				updateConfirm();
+			}
+
+			function updateConfirm(){
+				$count.text(state.selected.length);
+				if (state.required && state.selected.length === 0){
+					$confirm.prop('disabled', true);
+				} else {
+					$confirm.prop('disabled', false);
+				}
+				renderSelectedChips();
+			}
+
+			function renderSelectedChips(){
+				if (!$chips.length){ return; }
+				if (!state.selected.length){
+					$chips.empty();
+					return;
+				}
+				var grouped = {};
+				state.selected.forEach(function(id){
+					grouped[id] = (grouped[id] || 0) + 1;
+				});
+				var html = '';
+				Object.keys(grouped).forEach(function(id){
+					var item = state.itemMap[id] || { name: '#' + id };
+					var label = item.name;
+					if (grouped[id] > 1){ label += ' × ' + grouped[id]; }
+					html += '<span class="threeabar-sel-chip">'+ escapeHtml(label) +
+						'<button type="button" class="threeabar-sel-chip-remove" data-id="'+ id +'" aria-label="'+ (cfg.i18n ? cfg.i18n.removeOne : '') +'">&times;</button></span>';
+				});
+				$chips.html(html);
+			}
+
+			function escapeHtml(s){
+				return $('<div>').text(s || '').html();
+			}
+
+			function flash(msg){
+				if (!msg){ return; }
+				var $f = $('<div class="threeabar-flash"></div>').text(msg).css({
+					position:'fixed', bottom:'28px', insetInlineStart:'50%', transform:'translateX(-50%)',
+					background:'linear-gradient(120deg,#b97e16,#e0a73c)', color:'#1a1206', padding:'12px 22px', borderRadius:'12px',
+					zIndex:9999999, fontWeight:'700', boxShadow:'0 14px 30px -12px rgba(184,128,28,.8)'
+				});
+				$('body').append($f);
+				setTimeout(function(){ $f.fadeOut(300, function(){ $(this).remove(); }); }, 1800);
+			}
+
+			function addToCart(){
+				// عند الإجبارية يجب اختيار إضافة واحدة على الأقل.
+				if (state.required && !state.selected.length){ return; }
+
+				// قراءة اللون المختار من صفحة المنتج (بلاجن الألوان) إن وُجد.
+				var $colorWrap = $('.threeabar-colors-wrap');
+				var color = $colorWrap.find('.threeabar-color-input').val() || '';
+				if ($colorWrap.length && $colorWrap.data('required') == 1 && !color){
+					flash(cfg.i18n ? cfg.i18n.chooseColor : '');
+					closeModal();
+					$('html,body').animate({ scrollTop: $colorWrap.offset().top - 120 }, 400);
+					return;
+				}
+
+				$confirm.addClass('is-loading').prop('disabled', true);
+				$.ajax({
+					url: cfg.ajaxUrl,
+					method:'POST',
+					dataType:'json',
+					data:{
+						action:'3abar_add_to_cart',
+						nonce: cfg.nonce,
+						product_id: state.productId,
+						quantity: state.parentQty,
+						addons: state.selected,
+						color: color
+					}
+				}).done(function(res){
+					if (res && res.success){
+						window.location.href = res.data.redirect_url;
+					} else {
+						$confirm.removeClass('is-loading').prop('disabled', false);
+						flash((res && res.data && res.data.message) ? res.data.message : (cfg.i18n ? cfg.i18n.error : 'Error'));
+					}
+				}).fail(function(){
+					$confirm.removeClass('is-loading').prop('disabled', false);
+					flash(cfg.i18n ? cfg.i18n.error : 'Error');
+				});
+			}
+		})(jQuery);
+		<?php
+		return ob_get_clean();
 	}
 }
 
-Three_Abar_WC_Product_Addons::instance();
+// إقلاع البلاجن.
+ThreeAbar_WC_Product_Addons::instance();
